@@ -1,74 +1,46 @@
 # VRPTW data
 
-This directory contains the **Solomon Vehicle Routing Problem with Time Windows (VRPTW)** benchmark instances used as toy data for this project.
+Solomon VRPTW benchmark instances ([Kaggle source](https://www.kaggle.com/datasets/masud7866/solomon-vrptw-benchmark)).
 
-The data is based on the benchmark introduced by:
+## CSV schema
 
-> Solomon, M. M. (1987). *Algorithms for the Vehicle Routing and Scheduling Problems with Time Window Constraints*. Operations Research, 35(2), 254–265.
+Each instance is a CSV with one row per customer (including the depot). Required columns:
 
-The original benchmark is widely used to evaluate algorithms for the Vehicle Routing Problem with Time Windows (VRPTW).
+| Column | Description |
+|---|---|
+| `cust_no` | Customer ID (`0` or `1` for the depot) |
+| `xcoord` | X coordinate |
+| `ycoord` | Y coordinate |
+| `demand` | Demand (0 for the depot) |
+| `ready_time` | Earliest service start |
+| `due_date` | Latest service start |
+| `service_time` | Service duration |
 
-The dataset used in this project was obtained from the
-[Solomon VRPTW Benchmark on Kaggle](https://www.kaggle.com/datasets/masud7866/solomon-vrptw-benchmark).
+Column headers are normalized on ingest (lowercase, spaces → underscores, periods removed), so headers like `CUST NO.` and `READY TIME` work as-is.
 
----
+## Directory layout
 
-## 1. Problem Overview
+```
+data/
+  <dataset_name>/
+    <instance>.csv
+```
 
-The **Vehicle Routing Problem with Time Windows (VRPTW)** consists of a fleet of vehicles that must serve a set of customers while respecting:
+Example: `data/solomon/C1/C101.csv` → dataset `solomon`, instance `C101`.
 
-- vehicle capacity;
-- customer demand;
-- customer time windows;
-- service duration;
-- vehicle availability;
-- depot constraints.
+## Database upload
 
-Every vehicle starts and finishes at the **depot**.
+On `docker compose up`, the `db-init` service runs `db/ingest.py`, which:
 
-The optimization problem is typically concerned with finding a set of routes that serves every customer while minimizing a routing cost, commonly:
+1. Recursively finds every `*.csv` under `data/`.
+2. Upserts a row in `datasets` (keyed by `name` + `instance`).
+3. Upserts customer rows in `instances`.
 
-1. the number of vehicles used; and
-2. the total travel distance.
+To reload after changing CSVs:
 
-The Solomon benchmark provides standardized instances for comparing different optimization approaches.
+```bash
+docker compose down -v
+docker compose up
+```
 
----
-
-## 2. Dataset Structure
-
-The Solomon benchmark is divided into six instance families:
-
-| Family | Customer distribution | Scheduling horizon |
-|---|---|---|
-| `C1` | Clustered | Short |
-| `C2` | Clustered | Long |
-| `R1` | Random | Short |
-| `R2` | Random | Long |
-| `RC1` | Random + Clustered | Short |
-| `RC2` | Random + Clustered | Long |
-
-The first letter describes the spatial distribution of customers:
-
-- **C** — customers are geographically clustered.
-- **R** — customers are randomly distributed.
-- **RC** — customers contain both random and clustered characteristics.
-
-The second digit describes the scheduling horizon:
-
-- **1** — short scheduling horizon.
-- **2** — long scheduling horizon.
-
-This distinction affects the number of customers that can typically be served by a single vehicle. Short-horizon instances generally result in fewer customers per route, while long-horizon instances allow substantially more customers per route. :contentReference[oaicite:1]{index=1}
-
-Examples:
-
-```text
-C101   -> clustered customers, short horizon
-C201   -> clustered customers, long horizon
-
-R101   -> randomly distributed customers, short horizon
-R201   -> randomly distributed customers, long horizon
-
-RC101  -> mixed distribution, short horizon
-RC201  -> mixed distribution, long horizon
+The `-v` flag drops the Postgres volume so schema and data are recreated from scratch.
