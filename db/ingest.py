@@ -1,3 +1,5 @@
+"""Ingest VRPTW dataset CSV files from disk into PostgreSQL."""
+
 import hashlib
 import os
 import time
@@ -48,15 +50,26 @@ UPSERT_INSTANCE = text("""
 
 
 def make_dataset_id(name: str, instance: str) -> str:
-    """
-    Return an unique identifier hash for a given dataset name and instance.
+    """Return a unique identifier hash for a dataset name and instance pair.
+
+    Args:
+        name: Dataset family name (e.g. ``solomon``).
+        instance: Instance identifier within the dataset.
+
+    Return:
+        SHA-256 hex digest of ``name`` and ``instance``.
     """
     return hashlib.sha256(f"{name}:{instance}".encode()).hexdigest()
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Normalize the column names to snake case and remove periods.
+    """Normalize DataFrame column names to snake_case.
+
+    Args:
+        df: Input DataFrame whose columns will be renamed in place.
+
+    Return:
+        The same ``df`` with normalized column names.
     """
     df.columns = [
         col.strip().lower().replace(" ", "_").replace(".", "") for col in df.columns
@@ -65,8 +78,15 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def discover_csvs(data_dir: Path):
-    """
-    Recursively discover all CSV files in the ``data/`` directory.
+    """Recursively discover CSV files grouped by dataset directory.
+
+    Args:
+        data_dir: Root directory containing one subdirectory per dataset.
+
+    Yields:
+        A ``(name, instance, csv_path)`` tuple where ``name`` is the dataset
+        directory name, ``instance`` is the CSV stem, and ``csv_path`` is the
+        file path.
     """
     for dataset_dir in sorted(data_dir.iterdir()):
         if not dataset_dir.is_dir():
@@ -77,6 +97,19 @@ def discover_csvs(data_dir: Path):
 
 
 def create_engine_with_retry(url: str, retries: int = 10, delay: float = 2.0):
+    """Create a SQLAlchemy engine, retrying until the database is reachable.
+
+    Args:
+        url: SQLAlchemy database URL.
+        retries: Maximum number of connection attempts.
+        delay: Seconds to wait between attempts.
+
+    Return:
+        A connected SQLAlchemy engine.
+
+    Raises:
+        OperationalError: If all ``retries`` attempts fail.
+    """
     logger.info(
         f"Creating database engine for url={url} with retries={retries} and delay={delay}"
     )
@@ -94,20 +127,19 @@ def create_engine_with_retry(url: str, retries: int = 10, delay: float = 2.0):
 
 
 def ingest_csv(conn, name: str, instance: str, csv_path: Path) -> int:
-    """
-    Load a dataset instance CSV file into the database.
+    """Load a dataset instance CSV file into the database.
 
     Args:
-        conn: The database connection.
-        name: The name of the dataset.
-        instance: The instance of the dataset.
-        csv_path: The path to the CSV file.
+        conn: Active database connection or transaction.
+        name: Dataset family name.
+        instance: Instance identifier within the dataset.
+        csv_path: Path to the CSV file.
 
-    Returns:
-        The number of rows inserted into the ``instances`` table.
+    Return:
+        Number of customer rows upserted into the ``instances`` table.
 
     Raises:
-        ValueError: If the CSV file is missing required columns.
+        ValueError: If ``csv_path`` is missing required columns.
     """
     ds_id = make_dataset_id(name, instance)
     conn.execute(UPSERT_DATASET, {"id": ds_id, "name": name, "instance": instance})
@@ -138,9 +170,7 @@ def ingest_csv(conn, name: str, instance: str, csv_path: Path) -> int:
 
 
 def main() -> None:
-    """
-    Ingest data from the ``data/`` directory into the PostgreSQL database.
-    """
+    """Ingest all CSV files under ``DATA_DIR`` into PostgreSQL."""
     database_url = os.environ["DATABASE_URL"]
     engine = create_engine_with_retry(database_url)
     total_datasets = 0
