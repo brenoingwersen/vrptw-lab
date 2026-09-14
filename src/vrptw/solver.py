@@ -1,7 +1,24 @@
 """CP-SAT solver for VRPTW with two-stage lexicographic optimization.
 
-Stage 1 minimizes trucks (fleet + capacity + time windows).
-Stage 2 fixes the truck count and minimizes total route distance.
+This module orchestrates the full solve pipeline: model construction,
+constraint posting, objective switching, and result packaging. It delegates
+variable creation to ``VRPTWVariables``, route metrics to ``routes``, and
+feasibility checks to ``validators``.
+
+Two-stage lexicographic solve:
+
+    Stage 1 — minimize the number of trucks (depot-leaving arcs) subject to
+    capacity, fleet size, circuit, and time-window constraints.
+    Stage 2 — fix the stage-1 truck count, warm-start from stage 1, and
+    minimize total route distance.
+
+Separation of concerns:
+
+    * ``VRPTWProblem`` — what to optimize (data + fleet limits).
+    * ``VRPTWVariables`` — decision variables and arc indexing.
+    * ``VRPTWSolver`` — constraints, objectives, and solve orchestration.
+    * ``SolveResult`` / ``VRPTWSolution`` — outcomes after a run completes.
+    * ``routes`` / ``validators`` — post-solve analysis on selected arcs.
 """
 
 import time
@@ -27,16 +44,19 @@ from vrptw.variables import VRPTWVariables
 
 
 class VRPTWSolver:
-    """CP-SAT model builder and solve orchestrator.
+    """CP-SAT model builder and two-stage solve orchestrator.
 
-    Runs a two-stage lexicographic solve: first minimize truck count, then
-    minimize total distance while keeping the stage-1 truck count fixed.
+    Owns the OR-Tools ``CpModel`` and ``CpSolver`` lifecycle: variables are
+    created at construction, constraints are added once, and ``solve`` runs
+    the lexicographic two-stage search. This class does **not** format output
+    tables or re-validate routes beyond calling ``validators`` before
+    returning a result.
 
     Attributes:
-        problem: VRPTW problem definition.
-        config: CP-SAT engine configuration.
-        model: OR-Tools CP-SAT model.
-        cp_solver: Configured ``CpSolver`` instance.
+        problem: Complete VRPTW problem definition.
+        config: CP-SAT engine configuration (seed, time limit, logging).
+        model: OR-Tools CP-SAT model with variables and constraints.
+        cp_solver: Configured ``CpSolver`` instance reused across stages.
         status: Solver status code from the last ``solve`` call, or ``None``.
     """
 
@@ -47,9 +67,12 @@ class VRPTWSolver:
     ):
         """Initialize the solver and build the CP-SAT model.
 
+        Validates the problem, configures logging, creates variables, and
+        posts all constraints. Objectives are set per stage, not here.
+
         Args:
             problem: VRPTW problem to solve.
-            config: CP-SAT engine configuration.
+            config: CP-SAT engine configuration. Defaults to ``SolverConfig()``.
         """
         problem.validate()
         self.problem = problem
@@ -70,14 +93,18 @@ class VRPTWSolver:
 
     @property
     def instance(self) -> VRPTWInstance:
-        """Return the node-level problem instance."""
+        """Return the node-level problem instance.
+
+        Returns:
+            The ``VRPTWInstance`` embedded in ``problem``.
+        """
         return self.problem.instance
 
     @property
     def is_feasible(self) -> bool:
         """Return whether the last solve found a feasible or optimal solution.
 
-        Return:
+        Returns:
             ``True`` when ``status`` is ``OPTIMAL`` or ``FEASIBLE``.
         """
         return self.status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
@@ -86,7 +113,7 @@ class VRPTWSolver:
     def status_name(self) -> str | None:
         """Return the human-readable name of the last solver status.
 
-        Return:
+        Returns:
             Status name string, or ``None`` if no solve has run yet.
         """
         if self.status is None:
@@ -95,11 +122,15 @@ class VRPTWSolver:
 
     @property
     def variables(self) -> VRPTWVariables:
-        """Return the variables of the solver."""
+        """Return the CP-SAT variable container for this model.
+
+        Returns:
+            The ``VRPTWVariables`` instance created at construction.
+        """
         return self._variables
 
     def _add_constraints(self) -> None:
-        """Add circuit, fleet, and load constraints to ``model``."""
+        """Add circuit, fleet, load, and time-window constraints to ``model``."""
         logger.debug("Adding constraints to the model...")
         self._add_circuit_constraint()
         self._add_max_trucks_constraint()
@@ -107,11 +138,14 @@ class VRPTWSolver:
         self._add_time_window_constraints()
 
     def _add_circuit_constraint(self) -> None:
-        """Ensure each node is visited, allowing multiple circuits (trucks).
+        """Ensure each customer is visited exactly once across truck circuits.
 
-        A single-circuit example: ``0 -> 1 -> 2 -> 3 -> 0``.
+        Uses OR-Tools ``add_multiple_circuit`` so the solution may contain
+        several disjoint depot-to-depot routes (one per truck).
 
-        A multi-circuit example::
+        Example single route: ``0 -> 1 -> 2 -> 3 -> 0``.
+
+        Example two-truck solution::
 
             0 -> 1 -> 2 -> 0
             0 -> 3 -> 0
@@ -125,7 +159,11 @@ class VRPTWSolver:
         )
 
     def _add_max_trucks_constraint(self) -> None:
-        """Limit the number of trucks to ``problem.max_trucks``."""
+        """Limit the number of trucks to ``problem.max_trucks``.
+
+        Each truck corresponds to one depot-leaving arc, so this caps the
+        sum of ``arcs_leaving_depot``.
+        """
         logger.debug(
             f"Constraint: limit the number of trucks to {self.problem.max_trucks}."
         )
@@ -134,7 +172,12 @@ class VRPTWSolver:
         )
 
     def _add_load_constraint(self) -> None:
-        """Enforce cumulative load limits along each truck route."""
+        """Enforce cumulative load limits along each truck route.
+
+        Load increases by customer demand when an arc is selected. The depot
+        starts at zero load. Returning-to-depot arcs are skipped because
+        load is tracked only for customer visits.
+        """
         logger.debug("Constraint: limit the load on each truck route.")
         self.model.add(self.variables.node_load_vars[0] == 0)
 
@@ -154,7 +197,12 @@ class VRPTWSolver:
             )
 
     def _add_time_window_constraints(self) -> None:
-        """Enforce time window constraints for each node."""
+        """Enforce precedence and time windows along each selected arc.
+
+        Service at the destination cannot start before service finishes at
+        the origin plus travel time. Node start-time variables are already
+        bounded by each node's ``ready_time`` and ``due_date``.
+        """
         logger.debug("Constraint: enforce time window constraints for each node.")
         for (
             node_from,
@@ -188,14 +236,19 @@ class VRPTWSolver:
         )
 
     def _fix_truck_count(self, n_trucks: int) -> None:
-        """Fix the number of trucks to the stage-1 optimum for stage 2."""
+        """Fix the number of trucks to the stage-1 optimum for stage 2.
+
+        Args:
+            n_trucks: Truck count from the stage-1 optimal solution.
+        """
         logger.debug(f"Constraint: fix the number of trucks to {n_trucks}.")
         self.model.add(sum(self.variables.arcs_leaving_depot) == n_trucks)
 
     def _set_solution_as_hint(self) -> None:
         """Set the current CP-SAT solution as hints for a subsequent solve.
 
-        Call only after a feasible stage-1 run.
+        Call only after a feasible stage-1 run so stage 2 starts near a
+        good incumbent.
 
         Raises:
             ValueError: If a proto variable name does not match its model variable.
@@ -209,7 +262,7 @@ class VRPTWSolver:
             self.model.add_hint(v_, self.cp_solver.value(v_))
 
     def _configure_time_limit(self) -> None:
-        """Apply the configured time limit to ``cp_solver``."""
+        """Apply the configured time limit to ``cp_solver``, if any."""
         if self.config.max_time_in_seconds is not None:
             self.cp_solver.parameters.max_time_in_seconds = (
                 self.config.max_time_in_seconds
@@ -218,10 +271,13 @@ class VRPTWSolver:
     def _build_solve_result(self, runtime_seconds: float) -> SolveResult:
         """Package the last solve into a ``SolveResult``.
 
-        Args:
-            runtime_seconds: Wall-clock solve duration.
+        On feasible runs, extracts selected arcs, validates them, and
+        computes truck count and total distance via ``routes``.
 
-        Return:
+        Args:
+            runtime_seconds: Wall-clock solve duration for the current stage.
+
+        Returns:
             ``SolveResult`` with a populated or empty ``solution`` depending on
             ``is_feasible``.
         """
@@ -250,9 +306,9 @@ class VRPTWSolver:
         )
 
     def _solve_stage1_minimize_trucks(self) -> SolveResult:
-        """Run stage 1: minimize truck count subject to capacity and fleet limits.
+        """Run stage 1: minimize truck count subject to all constraints.
 
-        Return:
+        Returns:
             ``SolveResult`` from the stage-1 solve.
         """
         self._configure_time_limit()
@@ -273,11 +329,12 @@ class VRPTWSolver:
         return result
 
     def _solve_stage2_minimize_distance(self) -> SolveResult:
-        """Run stage 2: re-solve with distance objective and hints from stage 1.
+        """Run stage 2: minimize distance with fixed truck count and hints.
 
-        Assumes stage 1 already ran and left a feasible solution in ``cp_solver``.
+        Assumes stage 1 already ran and left a feasible solution in
+        ``cp_solver``.
 
-        Return:
+        Returns:
             ``SolveResult`` from the stage-2 solve.
         """
         n_trucks = count_trucks(
@@ -303,12 +360,15 @@ class VRPTWSolver:
         return result
 
     def solve(self) -> SolveResult:
-        """Run stage 1 (minimize trucks) then stage 2 (minimize distance).
+        """Run the full two-stage lexicographic solve.
 
-        Return:
-            ``SolveResult`` with status, runtime, solution, truck count, and
-            total distance. On infeasible stage 1, returns the stage-1 result
-            with empty arcs.
+        Stage 1 minimizes trucks; stage 2 minimizes distance while keeping
+        the stage-1 fleet size. If stage 1 is infeasible, stage 2 is
+        skipped and the stage-1 result is returned with empty arcs.
+
+        Returns:
+            ``SolveResult`` with combined runtime, final status, solution,
+            truck count, and total distance.
         """
         log_section("Solving VRPTW problem")
         stage1 = self._solve_stage1_minimize_trucks()

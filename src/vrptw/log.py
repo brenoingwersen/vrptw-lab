@@ -1,4 +1,18 @@
-"""Logging helpers for the VRPTW solver."""
+"""Logging helpers for the VRPTW solver.
+
+Centralizes loguru setup and consistent message formatting for multi-stage
+solves. This module handles **presentation only**— it does not configure
+CP-SAT parameters (see ``SolverConfig``) or interpret solver results (see
+``SolveResult``).
+
+Separation of concerns:
+
+    * ``configure_logging`` — one-time loguru sink and level setup.
+    * ``log_section`` — visual separators between major steps.
+    * ``log_stage_complete`` / ``log_solve_complete`` — structured summaries
+      consumed by ``VRPTWSolver`` after each stage and at the end.
+    * ``VRPTWCallback`` — per-incumbent DEBUG traces during search.
+"""
 
 import sys
 from typing import TYPE_CHECKING
@@ -15,7 +29,18 @@ _configured_level: str | None = None
 
 
 def configure_logging(level: str = "INFO") -> None:
-    """Configure loguru for library use with the given minimum level."""
+    """Configure loguru for library use with the given minimum level.
+
+    Idempotent: repeated calls with the same level are no-ops. Removes default
+    loguru handlers and writes to stderr at the requested verbosity.
+
+    Args:
+        level: Minimum log level (``DEBUG``, ``INFO``, ``WARNING``, ``ERROR``,
+            or ``SUCCESS``).
+
+    Raises:
+        ValueError: If ``level`` is not an allowed value.
+    """
     global _configured_level
 
     normalized = level.upper()
@@ -34,7 +59,12 @@ def configure_logging(level: str = "INFO") -> None:
 
 
 def log_section(title: str, *, width: int = SECTION_WIDTH) -> None:
-    """Log a single-line section separator with a title."""
+    """Log a single-line section separator with a title.
+
+    Args:
+        title: Section heading text (e.g. ``"Stage 1: Minimize trucks"``).
+        width: Total line width including title and dash padding.
+    """
     prefix = f"── {title} "
     padding = max(0, width - len(prefix))
     logger.info(f"{prefix}{'─' * padding}")
@@ -46,7 +76,15 @@ def log_stage_complete(
     runtime_s: float,
     **metrics: object,
 ) -> None:
-    """Log a one-line stage completion summary."""
+    """Log a one-line stage completion summary.
+
+    Args:
+        stage: Stage label (e.g. ``"Stage 1"``).
+        status: Human-readable solver status name.
+        runtime_s: Wall-clock runtime in seconds for the stage.
+        **metrics: Optional key-value pairs appended when values are not
+            ``None`` (e.g. ``trucks=3``, ``distance=1200``).
+    """
     parts = [f"status={status}", f"runtime={runtime_s:.2f}s"]
     for key, value in metrics.items():
         if value is not None:
@@ -55,7 +93,11 @@ def log_stage_complete(
 
 
 def log_solve_complete(result: "SolveResult") -> None:
-    """Log a one-line summary for the full two-stage solve."""
+    """Log a one-line summary for the full two-stage solve.
+
+    Args:
+        result: Combined ``SolveResult`` returned by ``VRPTWSolver.solve``.
+    """
     runtime = result.runtime_seconds or 0.0
     parts = [
         f"status={result.status_name}",

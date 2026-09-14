@@ -1,4 +1,16 @@
-"""VRPTW problem definition: instance data plus fleet parameters."""
+"""Complete VRPTW problem definition: instance data plus fleet parameters.
+
+This module sits between raw node data and the solver. It composes a
+``VRPTWInstance`` with fleet-level constraints without duplicating node fields
+or touching CP-SAT model code.
+
+Separation of concerns:
+
+    * ``VRPTWInstance`` — node geometry, demand, and time windows only.
+    * ``VRPTWProblem`` — fleet parameters and cross-field validation.
+    * ``SolverConfig`` — engine tuning (seed, time limit, log level).
+    * ``VRPTWSolver`` — model building, constraints, and optimization.
+"""
 
 from pydantic import BaseModel, Field
 
@@ -6,12 +18,17 @@ from vrptw.instance import VRPTWInstance
 
 
 class VRPTWProblem(BaseModel):
-    """Complete VRPTW problem: node data and fleet constraints.
+    """A solvable VRPTW problem: node data plus fleet constraints.
+
+    Bundles an instance with operational limits (capacity and fleet size).
+    Problem-level validation lives here— for example, ensuring no single
+    customer demand exceeds truck capacity— so the solver can assume
+    consistent inputs.
 
     Attributes:
         instance: Node-level problem data.
-        truck_capacity: Maximum load per truck.
-        max_trucks: Upper bound on fleet size.
+        truck_capacity: Maximum cumulative load per truck route.
+        max_trucks: Upper bound on the number of trucks that may leave the depot.
     """
 
     instance: VRPTWInstance
@@ -33,7 +50,7 @@ class VRPTWProblem(BaseModel):
             truck_capacity: Maximum load per truck.
             max_trucks: Upper bound on fleet size.
 
-        Return:
+        Returns:
             A validated ``VRPTWProblem``.
         """
         return cls(

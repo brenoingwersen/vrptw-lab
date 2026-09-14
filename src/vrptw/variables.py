@@ -1,3 +1,22 @@
+"""CP-SAT decision variables for the VRPTW model.
+
+This module creates and indexes OR-Tools variables. It does **not** add
+constraints, set objectives, or run the solver— those responsibilities belong
+to ``VRPTWSolver``.
+
+Separation of concerns:
+
+    * ``VRPTWVariables`` — variable creation, arc indexing, and solution extraction.
+    * ``VRPTWSolver`` — constraint posting and two-stage optimization.
+    * ``routes`` — pure functions over selected arcs after a solve.
+
+The three variable families mirror the VRPTW structure:
+
+    * **Arc booleans** — which directed edges are used in the solution.
+    * **Node loads** — cumulative demand when a truck arrives at each node.
+    * **Start times** — when service begins at each node (bounded by time windows).
+"""
+
 from collections.abc import Iterator
 
 import numpy as np
@@ -8,13 +27,36 @@ from vrptw.problem import VRPTWProblem
 
 
 class VRPTWVariables:
-    """CP-SAT variables container for the VRPTW problem."""
+    """Container for all CP-SAT decision variables in a VRPTW model.
+
+    Builds arc, load, and start-time variables from a ``VRPTWProblem`` and
+    exposes iterators that pair variables with the data needed to post
+    constraints. Keeping variable creation isolated makes the solver's
+    constraint methods read as declarative recipes rather than low-level
+    OR-Tools boilerplate.
+
+    Attributes:
+        arcs: Directed edges ``(from, to)`` with self-loops removed.
+        arc_vars: Boolean variable per arc indicating selection.
+        node_load_vars: Integer load variable per node, capped by truck capacity.
+        node_start_time_vars: Integer service-start variable per node, bounded
+            by that node's time window.
+        arcs_leaving_depot: Boolean arc variables whose origin is the depot.
+        arc_distance: Precomputed Euclidean distance per arc, aligned with ``arcs``.
+        arc_travel_time: Alias of ``arc_distance`` (travel time = distance here).
+    """
 
     def __init__(
         self,
         problem: VRPTWProblem,
         model: cp_model.CpModel,
     ):
+        """Create all decision variables for a VRPTW CP-SAT model.
+
+        Args:
+            problem: Complete problem definition (instance + fleet parameters).
+            model: Empty or partially built CP-SAT model to receive variables.
+        """
         instance = problem.instance
         self._instance = instance
         self._node_idx = np.arange(instance.n_nodes, dtype=np.int32)
@@ -51,20 +93,22 @@ class VRPTWVariables:
 
     @property
     def arcs(self) -> np.ndarray:
-        """Return the arcs."""
+        """Return the arc index pairs ``(from, to)``.
+
+        Returns:
+            2D array of shape ``(n_arcs, 2)`` with depot at index ``0``.
+        """
         return self._arcs
 
     @staticmethod
     def _create_arcs(n_nodes: int) -> np.ndarray:
-        """
-        Create the arcs for the VRPTW problem
-        and filter out self-loops.
+        """Build all directed arcs and remove self-loops.
 
         Args:
-            n_nodes: The number of nodes in the problem.
+            n_nodes: Number of nodes in the instance.
 
         Returns:
-            A 2D array of shape (n_arcs, 2) containing the arcs.
+            2D array of shape ``(n_arcs, 2)`` containing ``(from, to)`` pairs.
         """
         node_idx = np.arange(n_nodes, dtype=np.int32)
 
@@ -77,27 +121,51 @@ class VRPTWVariables:
 
     @property
     def arc_vars(self) -> np.ndarray:
-        """Return the arc decision variables."""
+        """Return the arc decision variables.
+
+        Returns:
+            1D array of ``cp_model.IntVar`` booleans, aligned with ``arcs``.
+        """
         return self._arc_vars
 
     @property
     def node_load_vars(self) -> np.ndarray:
-        """Return the node load decision variables."""
+        """Return the per-node cumulative load variables.
+
+        Returns:
+            1D array indexed by node, with ``load[0] == 0`` at the depot.
+        """
         return self._node_load_vars
 
     @property
     def node_start_time_vars(self) -> np.ndarray:
-        """Return the node start time decision variables."""
+        """Return the per-node service start-time variables.
+
+        Returns:
+            1D array indexed by node, each bounded by ``ready_time`` and
+            ``due_date`` from the instance.
+        """
         return self._node_start_time_vars
 
     @property
     def arcs_leaving_depot(self) -> np.ndarray:
-        """Return the arc variables leaving the depot."""
+        """Return arc variables whose origin is the depot.
+
+        The count of active depot-leaving arcs equals the number of trucks
+        used in a feasible solution.
+
+        Returns:
+            1D array of boolean arc variables leaving node ``0``.
+        """
         return self._arc_vars[self._arcs[:, 0] == self._node_idx[0]]
 
     @property
     def arc_distance(self) -> np.ndarray:
-        """Return Euclidean distance for each arc, aligned with ``arcs``."""
+        """Return Euclidean distance for each arc, aligned with ``arcs``.
+
+        Returns:
+            1D integer array of arc distances in the same order as ``arcs``.
+        """
         from_idx = self._arcs[:, 0]
         to_idx = self._arcs[:, 1]
         return np.array(
@@ -110,23 +178,36 @@ class VRPTWVariables:
 
     @property
     def arc_travel_time(self) -> np.ndarray:
-        """Return travel time for each arc, aligned with ``arcs``."""
+        """Return travel time for each arc, aligned with ``arcs``.
+
+        In this model travel time equals Euclidean distance.
+
+        Returns:
+            1D integer array parallel to ``arcs``.
+        """
         return self.arc_distance
 
     def iter_arcs(
         self,
     ) -> Iterator[tuple[tuple[int, int], cp_model.IntVar]]:
-        """Iterate over the arc decision variables.
+        """Iterate over arc index pairs and their decision variables.
 
-        Return:
-            Iterator of tuples of ``(from, to)`` ``node_idx`` pairs and
-            ``cp_model.IntVar`` decision variables.
+        Yields:
+            Tuples of ``((from, to), arc_var)`` for constraint posting.
         """
         for arc, v in zip(self.arcs, self.arc_vars):
             yield (int(arc[0]), int(arc[1])), v
 
     def get_selected_arcs(self, cp_solver: cp_model.CpSolver) -> np.ndarray:
-        """Return the selected arcs from the solver results."""
+        """Extract the arcs selected in a solver solution.
+
+        Args:
+            cp_solver: Solver instance that has finished a successful run.
+
+        Returns:
+            2D array of shape ``(n_selected, 2)`` with chosen ``(from, to)``
+            pairs, or an empty array when no arc is active.
+        """
         mask = np.array([cp_solver.value(v) for v in self.arc_vars], dtype=bool)
         if not np.any(mask):
             return np.empty((0, 2), dtype=np.int32)
@@ -137,10 +218,14 @@ class VRPTWVariables:
     ) -> Iterator[
         tuple[int, int, cp_model.IntVar, cp_model.IntVar, cp_model.IntVar, int]
     ]:
-        """Iterate over arcs with load-related variables and demand.
+        """Iterate over arcs with the variables needed for load constraints.
 
-        Return:
-            Iterator of ``(node_from, node_to, load_from, load_to, arc_var, demand)``.
+        Each yield bundles origin, destination, load at both endpoints, the
+        arc boolean, and the destination demand— everything required to post
+        ``load[to] >= load[from] + demand`` when the arc is active.
+
+        Yields:
+            Tuples ``(node_from, node_to, load_from, load_to, arc_var, demand)``.
         """
         for (node_from, node_to), arc_var in self.iter_arcs():
             yield (
@@ -157,10 +242,15 @@ class VRPTWVariables:
     ) -> Iterator[
         tuple[int, int, cp_model.IntVar, cp_model.IntVar, cp_model.IntVar, int]
     ]:
-        """Iterate over arcs with start-time variables and travel time.
+        """Iterate over arcs with the variables needed for time-window constraints.
 
-        Return:
-            Iterator of ``(node_from, node_to, start_from, start_to, arc_var, travel_time)``.
+        Each yield bundles service start times at both endpoints, the arc
+        boolean, and travel time— everything required to enforce
+        ``start[to] >= start[from] + service[from] + travel`` when the arc
+        is active.
+
+        Yields:
+            Tuples ``(node_from, node_to, start_from, start_to, arc_var, travel_time)``.
         """
         travel_times = self.arc_travel_time
         for idx, ((node_from, node_to), arc_var) in enumerate(self.iter_arcs()):

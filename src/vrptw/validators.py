@@ -1,4 +1,20 @@
-"""Post-solve validation for selected arcs."""
+"""Post-solve validation for selected arcs.
+
+Validators re-check feasibility **independently of the CP-SAT model**. They
+simulate routes from the extracted arc list and raise ``ValueError`` on
+violations. This catches modeling bugs, numerical edge cases, or corrupted
+solution data before results are returned or exported.
+
+Separation of concerns:
+
+    * ``VRPTWSolver`` — builds constraints and trusts OR-Tools, then calls
+      ``validate_solution`` as a safety net on feasible runs.
+    * ``validators`` — standalone checks usable in tests or notebooks.
+    * ``routes`` — circuit decomposition shared by validators and export code.
+
+Each function validates one aspect (depot balance, capacity, time windows).
+``validate_solution`` runs all checks in sequence.
+"""
 
 import numpy as np
 
@@ -10,12 +26,14 @@ from vrptw.routes import iter_circuits
 def validate_depot_balance(selected_arcs: np.ndarray) -> None:
     """Validate that depot leaving and returning arc counts match.
 
+    Every truck must depart from and return to the depot, so the number of
+    arcs leaving node ``0`` must equal the number entering node ``0``.
+
     Args:
         selected_arcs: 2D array of shape ``(n_selected, 2)`` with node indices.
 
     Raises:
-        ValueError: If the number of arcs leaving the depot differs from
-            the number returning to it.
+        ValueError: If departure and arrival counts at the depot differ.
     """
     if selected_arcs.size == 0:
         return
@@ -33,7 +51,9 @@ def validate_circuit_load(
     instance: VRPTWInstance,
     truck_capacity: int,
 ) -> None:
-    """Validate each circuit load is within truck capacity.
+    """Validate each circuit's total demand is within truck capacity.
+
+    Sums customer demand for all non-depot nodes visited on each truck route.
 
     Args:
         selected_arcs: Selected route arcs.
@@ -57,7 +77,11 @@ def validate_circuit_time_windows(
     selected_arcs: np.ndarray,
     instance: VRPTWInstance,
 ) -> None:
-    """Validate time windows along each circuit.
+    """Validate time windows along each circuit by forward simulation.
+
+    Tracks clock time along the route: travel plus service at each stop,
+    waiting until ``ready_time`` if arriving early, and failing if service
+    would start after ``due_date``.
 
     Args:
         selected_arcs: Selected route arcs.
@@ -93,8 +117,8 @@ def validate_solution(
     """Run all post-solve validations on selected arcs.
 
     Args:
-        selected_arcs: Selected route arcs.
-        problem: VRPTW problem definition used for the run.
+        selected_arcs: Selected route arcs from a solver run.
+        problem: VRPTW problem definition used for capacity and instance data.
 
     Raises:
         ValueError: If any validation check fails.

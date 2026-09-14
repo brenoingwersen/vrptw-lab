@@ -1,4 +1,18 @@
-"""VRPTW problem instance definition."""
+"""Node-level problem data for VRPTW instances.
+
+This module owns **what** needs to be visited: coordinates, demand, service
+times, and time windows. It deliberately excludes fleet parameters (truck
+capacity, fleet size) and any solver or routing logic.
+
+Separation of concerns:
+
+    * ``VRPTWInstance`` — immutable node data and travel-time geometry.
+    * ``VRPTWProblem`` (see ``problem``) — adds fleet constraints on top.
+    * ``VRPTWSolver`` (see ``solver``) — builds and solves the CP-SAT model.
+
+Node index ``0`` is always the depot. The ``cust_no`` field stores external
+customer identifiers (``1`` for the depot in Solomon-format files).
+"""
 
 import numpy as np
 import pandas as pd
@@ -6,18 +20,21 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class VRPTWInstance(BaseModel):
-    """Vehicle routing problem instance with time-window fields.
+    """Immutable node data for a single VRPTW instance.
 
-    Node index ``0`` is the depot; ``cust_no`` holds external customer identifiers.
+    Each row describes one location: where it is, how much must be delivered,
+    how long service takes, and when service may start. This class validates
+    array shapes and provides travel-time helpers, but does **not** decide
+    how many trucks to use or how routes are formed.
 
     Attributes:
-        cust_no: Customer numbers (``1`` = depot).
+        cust_no: External customer numbers (``1`` = depot).
         xcoord: X-coordinates of each node.
         ycoord: Y-coordinates of each node.
-        demand: Customer demand (``0`` at the depot).
-        ready_time: Earliest service start time per node.
-        due_date: Latest service start time per node.
-        service_time: Service duration per node.
+        demand: Delivery demand per node (``0`` at the depot).
+        ready_time: Earliest allowed service start time per node.
+        due_date: Latest allowed service start time per node.
+        service_time: Service duration at each node.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -68,9 +85,9 @@ class VRPTWInstance(BaseModel):
         """Create an instance from a pandas DataFrame.
 
         Args:
-            df: DataFrame with columns matching the instance field names.
+            df: DataFrame whose columns match the instance field names.
 
-        Return:
+        Returns:
             A validated ``VRPTWInstance``.
         """
         return cls(
@@ -87,7 +104,7 @@ class VRPTWInstance(BaseModel):
     def n_nodes(self) -> int:
         """Return the number of nodes in the instance.
 
-        Return:
+        Returns:
             Length of ``cust_no``.
         """
         return len(self.cust_no)
@@ -95,11 +112,15 @@ class VRPTWInstance(BaseModel):
     def travel_time(self, node_from: int, node_to: int) -> int:
         """Return Euclidean travel time between two nodes.
 
+        Travel time equals integer Euclidean distance. This helper keeps
+        distance geometry in the data layer so route utilities and the
+        solver share one definition of arc cost.
+
         Args:
             node_from: Origin node index.
             node_to: Destination node index.
 
-        Return:
+        Returns:
             Integer Euclidean distance between the nodes.
         """
         dx = self.xcoord[node_from] - self.xcoord[node_to]
