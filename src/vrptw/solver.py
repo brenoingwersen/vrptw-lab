@@ -6,14 +6,18 @@ and time-window constraints are planned extension points.
 
 import time
 
-import numpy as np
 from loguru import logger
 from ortools.sat.python import cp_model
 
 from vrptw.callback import VRPTWCallback
 from vrptw.instance import VRPTWInstance
+from vrptw.problem import VRPTWProblem
 from vrptw.result import SolveResult
+from vrptw.routes import count_trucks
 from vrptw.solution import VRPTWSolution
+from vrptw.solver_config import SolverConfig
+from vrptw.validators import validate_solution
+from vrptw.variables import VRPTWVariables
 
 
 class VRPTWSolver:
@@ -23,9 +27,8 @@ class VRPTWSolver:
     Time windows and distance objectives are extension points for later stages.
 
     Attributes:
-        instance: Source problem instance.
-        max_trucks: Upper bound on the number of trucks.
-        truck_capacity: Maximum load per truck.
+        problem: VRPTW problem definition.
+        config: CP-SAT engine configuration.
         model: OR-Tools CP-SAT model.
         cp_solver: Configured ``CpSolver`` instance.
         status: Solver status code from the last ``solve`` call, or ``None``.
@@ -33,28 +36,31 @@ class VRPTWSolver:
 
     def __init__(
         self,
-        instance: VRPTWInstance,
-        max_trucks: int = 20,
-        truck_capacity: int = 200,
+        problem: VRPTWProblem,
+        config: SolverConfig | None = None,
     ):
         """Initialize the solver and build the CP-SAT model.
 
         Args:
-            instance: Problem instance to solve.
-            max_trucks: Maximum number of trucks allowed.
-            truck_capacity: Per-truck capacity limit.
+            problem: VRPTW problem to solve.
+            config: CP-SAT engine configuration.
         """
-        self.instance = instance
-        self.max_trucks = max_trucks
-        self.truck_capacity = truck_capacity
+        problem.validate()
+        self.problem = problem
+        self.config = config or SolverConfig()
 
         self.model = cp_model.CpModel()
-
-        self._build_problem()
+        self._variables = VRPTWVariables(problem, self.model)
+        self._add_constraints()
 
         self.cp_solver = cp_model.CpSolver()
-        self.cp_solver.parameters.random_seed = 42
+        self.cp_solver.parameters.random_seed = self.config.random_seed
         self.status = None
+
+    @property
+    def instance(self) -> VRPTWInstance:
+        """Return the node-level problem instance."""
+        return self.problem.instance
 
     @property
     def is_feasible(self) -> bool:
@@ -77,36 +83,9 @@ class VRPTWSolver:
         return self.cp_solver.status_name(self.status)
 
     @property
-    def arcs_leaving_depot_vars(self) -> np.ndarray:
-        """Return boolean arc variables for arcs leaving the depot.
-
-        Return:
-            1D array of arc decision variables whose origin is node ``0``.
-        """
-        arcs = self.instance.arcs
-        mask_leaving_depot = arcs[:, 0] == 0
-        return self.arc_vars[mask_leaving_depot]
-
-    def _build_problem(self) -> None:
-        """Build the CP-SAT model variables and constraints."""
-        logger.info("Building the VRPTW problem...")
-        self._add_variables()
-        self._add_constraints()
-
-    def _add_variables(self) -> None:
-        """Add arc and node-load decision variables to ``model``."""
-        logger.info("Adding the decision variables to the model...")
-        self.arc_vars = np.array(
-            [self.model.new_bool_var(f"arc_{n}") for n in self.instance.arcs]
-        )
-        self.node_load_vars = np.array(
-            [
-                self.model.new_int_var(0, self.truck_capacity, f"load_{idx}")
-                for idx in range(self.instance.n_nodes)
-            ]
-        )
-        logger.info(f"Arc variables: {self.arc_vars.shape}")
-        logger.info(f"Node load variables: {self.node_load_vars.shape}")
+    def variables(self) -> VRPTWVariables:
+        """Return the variables of the solver."""
+        return self._variables
 
     def _add_constraints(self) -> None:
         """Add circuit, fleet, and load constraints to ``model``."""
@@ -114,7 +93,7 @@ class VRPTWSolver:
         self._add_circuit_constraint()
         self._add_max_trucks_constraint()
         self._add_load_constraint()
-        # Future: self._add_time_window_constraints()
+        self._add_time_window_constraints()
 
     def _add_circuit_constraint(self) -> None:
         """Ensure each node is visited, allowing multiple circuits (trucks).
@@ -131,29 +110,31 @@ class VRPTWSolver:
         )
         self.model.add_multiple_circuit(
             [node_from, node_to, var]
-            for (node_from, node_to), var in zip(self.instance.arcs, self.arc_vars)
+            for (node_from, node_to), var in self.variables.iter_arcs()
         )
 
     def _add_max_trucks_constraint(self) -> None:
-        """Limit the number of trucks to ``max_trucks``."""
-        logger.info(f"Constraint: limit the number of trucks to {self.max_trucks}.")
-        self.model.add(sum(self.arcs_leaving_depot_vars) <= self.max_trucks)
+        """Limit the number of trucks to ``problem.max_trucks``."""
+        logger.info(
+            f"Constraint: limit the number of trucks to {self.problem.max_trucks}."
+        )
+        self.model.add(
+            sum(self.variables.arcs_leaving_depot) <= self.problem.max_trucks
+        )
 
     def _add_load_constraint(self) -> None:
         """Enforce cumulative load limits along each truck route."""
         logger.info("Constraint: limit the load on each truck route.")
+        self.model.add(self.variables.node_load_vars[0] == 0)
 
-        arcs = self.instance.arcs
-        load_from_vars = self.node_load_vars[arcs[:, 0]]
-        load_to_vars = self.node_load_vars[arcs[:, 1]]
-        arc_vars = self.arc_vars
-        demand_to = self.instance.demand[arcs[:, 1]]
-
-        self.model.add(self.node_load_vars[0] == 0)
-
-        for node_to, load_from_var, load_to_var, arc_var, demand in zip(
-            arcs[:, 1], load_from_vars, load_to_vars, arc_vars, demand_to
-        ):
+        for (
+            _node_from,
+            node_to,
+            load_from_var,
+            load_to_var,
+            arc_var,
+            demand,
+        ) in self.variables.iter_load_arcs():
             if node_to == 0:
                 continue
 
@@ -161,21 +142,40 @@ class VRPTWSolver:
                 arc_var
             )
 
+    def _add_time_window_constraints(self) -> None:
+        """Enforce time window constraints for each node."""
+        logger.info("Constraint: enforce time window constraints for each node.")
+        for (
+            node_from,
+            node_to,
+            start_from_var,
+            start_to_var,
+            arc_var,
+            travel_time,
+        ) in self.variables.iter_start_time_arcs():
+            if node_to == 0:
+                continue
+
+            self.model.add(
+                start_to_var
+                >= start_from_var + self.instance.service_time[node_from] + travel_time
+            ).only_enforce_if(arc_var)
+
     def _add_truck_minimization_objective(self) -> None:
         """Set stage-1 objective: minimize the number of trucks used."""
         logger.info("Objective: minimize the number of trucks used")
         self.model.clear_objective()
-        self.model.minimize(sum(self.arcs_leaving_depot_vars))
+        self.model.minimize(sum(self.variables.arcs_leaving_depot))
 
     def _add_distance_minimization_objective(self) -> None:
         """Set stage-2 objective: minimize total distance traveled.
 
         Intended implementation::
 
-            distances = self.instance.arc_distance
+            distances = self.variables.arc_distance
             self.model.clear_objective()
             self.model.minimize(
-                sum(d * v for d, v in zip(distances, self.arc_vars))
+                sum(d * v for d, v in zip(distances, self.variables.arc_vars))
             )
 
         Requires a feasible stage-1 solution; call ``_set_solution_as_hint`` before
@@ -202,14 +202,12 @@ class VRPTWSolver:
 
             self.model.add_hint(v_, self.cp_solver.value(v_))
 
-    def _configure_time_limit(self, max_time_in_seconds: float | None) -> None:
-        """Apply an optional time limit to ``cp_solver``.
-
-        Args:
-            max_time_in_seconds: Wall-clock limit in seconds, or ``None`` for no limit.
-        """
-        if max_time_in_seconds is not None:
-            self.cp_solver.parameters.max_time_in_seconds = max_time_in_seconds
+    def _configure_time_limit(self) -> None:
+        """Apply the configured time limit to ``cp_solver``."""
+        if self.config.max_time_in_seconds is not None:
+            self.cp_solver.parameters.max_time_in_seconds = (
+                self.config.max_time_in_seconds
+            )
 
     def _build_solve_result(self, runtime_seconds: float) -> SolveResult:
         """Package the last solve into a ``SolveResult``.
@@ -223,15 +221,16 @@ class VRPTWSolver:
         """
         status_name = self.status_name or "UNKNOWN"
         if self.is_feasible:
-            solution = VRPTWSolution.from_cp_solver(
-                self.instance, self.cp_solver, self.arc_vars
-            )
+            selected_arcs = self.variables.get_selected_arcs(self.cp_solver)
+            validate_solution(selected_arcs, self.problem)
+            solution = VRPTWSolution(selected_arcs)
+            n_trucks = count_trucks(selected_arcs)
             logger.success(f"Solver finished with status: {status_name}")
             return SolveResult(
                 status=self.status,
                 status_name=status_name,
                 solution=solution,
-                n_trucks=solution.n_trucks,
+                n_trucks=n_trucks,
                 runtime_seconds=runtime_seconds,
             )
 
@@ -239,38 +238,30 @@ class VRPTWSolver:
         return SolveResult(
             status=self.status,
             status_name=status_name,
-            solution=VRPTWSolution.empty(self.instance),
+            solution=VRPTWSolution.empty(),
             runtime_seconds=runtime_seconds,
         )
 
-    def _solve_stage1_minimize_trucks(
-        self, max_time_in_seconds: float | None = None
-    ) -> SolveResult:
+    def _solve_stage1_minimize_trucks(self) -> SolveResult:
         """Run stage 1: minimize truck count subject to capacity and fleet limits.
-
-        Args:
-            max_time_in_seconds: Optional wall-clock time limit.
 
         Return:
             ``SolveResult`` from the stage-1 solve.
         """
-        self._configure_time_limit(max_time_in_seconds)
+        self._configure_time_limit()
         logger.info("Stage 1: minimizing trucks...")
         self._add_truck_minimization_objective()
-        callback = VRPTWCallback()
         start = time.monotonic()
-        self.status = self.cp_solver.solve(self.model, callback)
+        self.status = self.cp_solver.solve(self.model, VRPTWCallback())
         runtime_seconds = time.monotonic() - start
         return self._build_solve_result(runtime_seconds)
 
-    def _solve_stage2_minimize_distance(
-        self, max_time_in_seconds: float | None = None
-    ) -> SolveResult:
+    def _solve_stage2_minimize_distance(self) -> SolveResult:
         """Run stage 2: re-solve with distance objective and hints from stage 1.
 
         Intended flow::
 
-            stage1 = self._solve_stage1_minimize_trucks(max_time_in_seconds)
+            stage1 = self._solve_stage1_minimize_trucks()
             if not self.is_feasible:
                 return stage1
             self._set_solution_as_hint()
@@ -279,23 +270,17 @@ class VRPTWSolver:
             self.status = self.cp_solver.solve(self.model)
             return self._build_solve_result(runtime_seconds)
 
-        Args:
-            max_time_in_seconds: Optional wall-clock time limit.
-
         Raises:
             NotImplementedError: Stage 2 is not implemented in v1.
         """
         raise NotImplementedError("Stage 2 not implemented in v1.")
 
-    def solve(self, max_time_in_seconds: float | None = None) -> SolveResult:
+    def solve(self) -> SolveResult:
         """Run stage 1 (minimize trucks).
-
-        Args:
-            max_time_in_seconds: Optional wall-clock time limit.
 
         Return:
             ``SolveResult`` with status, runtime, and solution (empty arcs on
             infeasible or timeout).
         """
         logger.info("Solving the VRPTW problem...")
-        return self._solve_stage1_minimize_trucks(max_time_in_seconds)
+        return self._solve_stage1_minimize_trucks()

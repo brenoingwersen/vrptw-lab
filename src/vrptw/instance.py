@@ -1,10 +1,8 @@
-"""VRPTW problem instance definition and derived arc data."""
-
-from functools import cached_property
+"""VRPTW problem instance definition."""
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class VRPTWInstance(BaseModel):
@@ -94,40 +92,16 @@ class VRPTWInstance(BaseModel):
         """
         return len(self.cust_no)
 
-    @property
-    def node_idx(self) -> np.ndarray:
-        """Return contiguous node indices from depot to last customer.
+    def travel_time(self, node_from: int, node_to: int) -> int:
+        """Return Euclidean travel time between two nodes.
 
-        Indices run from ``0`` to ``n_nodes - 1``, where ``0`` is the depot.
-
-        Return:
-            1D ``int32`` array of shape ``(n_nodes,)``.
-        """
-        return np.arange(self.n_nodes, dtype=np.int32)
-
-    @cached_property
-    def arcs(self) -> np.ndarray:
-        """Return all directed arcs excluding self-loops.
+        Args:
+            node_from: Origin node index.
+            node_to: Destination node index.
 
         Return:
-            2D ``int32`` array of shape ``(n_arcs, 2)`` with ``(from, to)``
-            ``node_idx`` pairs.
+            Integer Euclidean distance between the nodes.
         """
-        arc_from = np.repeat(self.node_idx, self.n_nodes)
-        arc_to = np.tile(self.node_idx, self.n_nodes)
-
-        # Remove self-arcs
-        mask = arc_from != arc_to
-        return np.column_stack((arc_from[mask], arc_to[mask]))
-
-    @computed_field
-    @cached_property
-    def arc_distance(self) -> np.ndarray:
-        """Return Euclidean distance for each arc.
-
-        Return:
-            1D ``int32`` array of shape ``(n_arcs,)`` aligned with ``arcs``.
-        """
-        dx = self.xcoord[self.arcs[:, 0]] - self.xcoord[self.arcs[:, 1]]
-        dy = self.ycoord[self.arcs[:, 0]] - self.ycoord[self.arcs[:, 1]]
-        return np.hypot(dx, dy).astype(np.int32)
+        dx = self.xcoord[node_from] - self.xcoord[node_to]
+        dy = self.ycoord[node_from] - self.ycoord[node_to]
+        return int(np.hypot(dx, dy))
