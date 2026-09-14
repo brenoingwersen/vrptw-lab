@@ -4,6 +4,8 @@ from collections.abc import Iterator
 
 import numpy as np
 
+from vrptw.instance import VRPTWInstance
+
 
 def count_trucks(selected_arcs: np.ndarray) -> int:
     """Return the number of trucks (depot-leaving arcs) in a solution.
@@ -17,6 +19,23 @@ def count_trucks(selected_arcs: np.ndarray) -> int:
     if selected_arcs.size == 0:
         return 0
     return int(np.sum(selected_arcs[:, 0] == 0))
+
+
+def total_distance(selected_arcs: np.ndarray, instance: VRPTWInstance) -> int:
+    """Return total travel distance across all selected arcs.
+
+    Args:
+        selected_arcs: 2D array of shape ``(n_selected, 2)`` with node indices.
+        instance: Source problem instance.
+
+    Return:
+        Sum of Euclidean distances for each arc in ``selected_arcs``.
+    """
+    if selected_arcs.size == 0:
+        return 0
+    return sum(
+        instance.travel_time(int(i), int(j)) for i, j in selected_arcs
+    )
 
 
 def _arc_by_from(selected_arcs: np.ndarray) -> dict[int, tuple[int, int]]:
