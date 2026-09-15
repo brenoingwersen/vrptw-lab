@@ -13,6 +13,7 @@ Separation of concerns:
 """
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -45,6 +46,23 @@ class VRPTWSolution:
         """
         return cls(np.empty((0, 2), dtype=np.int32))
 
+    def to_stops(self, instance: VRPTWInstance) -> list[dict[str, Any]]:
+        """
+        Convert the solution to a list of stops.
+        """
+        rows = []
+        for truck_id, circuit in enumerate(iter_circuits(self.selected_arcs), start=1):
+            for sequence, arc in enumerate(circuit, start=1):
+                rows.append(
+                    {
+                        "truck_id": truck_id,
+                        "sequence": sequence,
+                        "cust_no_from": instance.cust_no[arc[0]],
+                        "cust_no_to": instance.cust_no[arc[1]],
+                    }
+                )
+        return rows
+
     def to_stops_df(self, instance: VRPTWInstance) -> pd.DataFrame:
         """Build a per-truck stop sequence DataFrame.
 
@@ -60,9 +78,7 @@ class VRPTWSolution:
         return build_stops_df(instance, self.selected_arcs)
 
 
-def build_stops_df(
-    instance: VRPTWInstance, selected_arcs: np.ndarray
-) -> pd.DataFrame:
+def build_stops_df(instance: VRPTWInstance, selected_arcs: np.ndarray) -> pd.DataFrame:
     """Build a per-truck stop sequence DataFrame from selected arcs.
 
     Walks each depot-to-depot circuit (see ``routes.iter_circuits``) and

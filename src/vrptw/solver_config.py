@@ -33,6 +33,6 @@ class SolverConfig(BaseModel):
         log_level: Minimum log level for solver and library log output.
     """
 
-    random_seed: int = Field(default=42)
+    random_seed: int | None = None
     max_time_in_seconds: float | None = Field(default=None, gt=0)
     log_level: LogLevel = Field(default="INFO")

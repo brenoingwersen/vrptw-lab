@@ -28,7 +28,18 @@ services:
       DATA_DIR: /data
     volumes:
       - ./data:/data:ro
-    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-vrptw}:${POSTGRES_PASSWORD:-vrptw}@postgres:5432/${POSTGRES_DB:-vrptw}
+    ports:
+      - "8000:8000"
 
 volumes:
   pgdata:

@@ -88,7 +88,9 @@ class VRPTWSolver:
         )
 
         self.cp_solver = cp_model.CpSolver()
-        self.cp_solver.parameters.random_seed = self.config.random_seed
+        random_seed = self.config.random_seed
+        if random_seed is not None:
+            self.cp_solver.parameters.random_seed = random_seed
         self.status = None
 
     @property
@@ -337,9 +339,7 @@ class VRPTWSolver:
         Returns:
             ``SolveResult`` from the stage-2 solve.
         """
-        n_trucks = count_trucks(
-            self.variables.get_selected_arcs(self.cp_solver)
-        )
+        n_trucks = count_trucks(self.variables.get_selected_arcs(self.cp_solver))
         self._fix_truck_count(n_trucks)
         self._set_solution_as_hint()
         self._add_distance_minimization_objective()

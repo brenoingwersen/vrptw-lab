@@ -1,9 +1,9 @@
 """Ingest VRPTW dataset CSV files from disk into PostgreSQL."""
 
-import hashlib
 import os
 import time
 from pathlib import Path
+from uuid import uuid4
 
 import pandas as pd
 from loguru import logger
@@ -23,9 +23,9 @@ REQUIRED_COLUMNS = [
 ]
 
 UPSERT_DATASET = text("""
-    INSERT INTO datasets (id, name, instance)
-    VALUES (:id, :name, :instance)
-    ON CONFLICT (id) DO UPDATE SET
+    INSERT INTO datasets (dataset_id, name, instance)
+    VALUES (:dataset_id, :name, :instance)
+    ON CONFLICT (dataset_id) DO UPDATE SET
         name = EXCLUDED.name,
         instance = EXCLUDED.instance
 """)
@@ -47,19 +47,6 @@ UPSERT_INSTANCE = text("""
         due_date = EXCLUDED.due_date,
         service_time = EXCLUDED.service_time
 """)
-
-
-def make_dataset_id(name: str, instance: str) -> str:
-    """Return a unique identifier hash for a dataset name and instance pair.
-
-    Args:
-        name: Dataset family name (e.g. ``solomon``).
-        instance: Instance identifier within the dataset.
-
-    Return:
-        SHA-256 hex digest of ``name`` and ``instance``.
-    """
-    return hashlib.sha256(f"{name}:{instance}".encode()).hexdigest()
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -141,8 +128,10 @@ def ingest_csv(conn, name: str, instance: str, csv_path: Path) -> int:
     Raises:
         ValueError: If ``csv_path`` is missing required columns.
     """
-    ds_id = make_dataset_id(name, instance)
-    conn.execute(UPSERT_DATASET, {"id": ds_id, "name": name, "instance": instance})
+    ds_id = str(uuid4())
+    conn.execute(
+        UPSERT_DATASET, {"dataset_id": ds_id, "name": name, "instance": instance}
+    )
 
     df = normalize_columns(pd.read_csv(csv_path))
     missing = set(REQUIRED_COLUMNS) - set(df.columns)
