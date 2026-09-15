@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vrptw}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./db_init/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
@@ -19,7 +19,7 @@ services:
   db-init:
     build:
       context: .
-      dockerfile: db/Dockerfile
+      dockerfile: db_init/Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
@@ -32,7 +32,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: api/Dockerfile
+      dockerfile: backend/Dockerfile
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,0 +1,135 @@
+from time import perf_counter
+
+from ortools.sat.python import cp_model
+
+from domain import OptimizationRequest, OptimizationResult
+from optimizer.callback import Callback
+from optimizer.constraints import Constraints
+from optimizer.instance import ProblemInstance
+from optimizer.utils import count_trucks, to_route_arcs, total_distance
+from optimizer.validators import validate_solution
+from optimizer.variables import Variables
+
+
+class Solver:
+    def __init__(self, request: OptimizationRequest):
+        self.instance = ProblemInstance.from_request(request)
+        self.model = cp_model.CpModel()
+
+        self.variables = Variables(self.instance, self.model)
+
+        Constraints.add_constraints(self.model, self.variables, self.instance)
+
+        self._configure_solver()
+        self._cp_status: int = cp_model.UNKNOWN
+
+    @property
+    def is_feasible(self) -> bool:
+        return self._cp_status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
+
+    def _configure_solver(self) -> None:
+        """
+        Create and configure the CP-SAT solver instance.
+        """
+        cp_solver = cp_model.CpSolver()
+
+        max_time_in_seconds = self.instance.solver_config.max_time_in_seconds
+        if max_time_in_seconds is not None:
+            cp_solver.parameters.max_time_in_seconds = max_time_in_seconds
+
+        random_seed = self.instance.solver_config.random_seed
+        if random_seed is not None:
+            cp_solver.parameters.random_seed = random_seed
+
+        self.cp_solver = cp_solver
+
+    def _add_truck_minimization_objective(self) -> None:
+        self.model.clear_objective()
+        self.model.minimize(sum(self.variables.arcs_leaving_depot))
+
+    def _add_distance_minimization_objective(self) -> None:
+        distances = self.variables.arc_distance
+        self.model.clear_objective()
+        self.model.minimize(
+            sum(d * v for d, v in zip(distances, self.variables.arc_vars, strict=True))
+        )
+
+    def _solve_stage1_minimize_trucks(self) -> OptimizationResult:
+        """
+        Solve the first objective
+        """
+        self._add_truck_minimization_objective()
+        callback = Callback("stage 1")
+
+        start_time = perf_counter()
+        self._cp_status = self.cp_solver.solve(self.model, callback)
+        runtime_seconds = perf_counter() - start_time
+
+        return self._build_optimization_response(runtime_seconds)
+
+    def _fix_truck_count(self, total_trucks: int) -> None:
+        self.model.add(sum(self.variables.arcs_leaving_depot) <= total_trucks)
+
+    def _solve_stage2_minimize_distance(
+        self, stage1_response: OptimizationResult
+    ) -> OptimizationResult:
+        """
+        Solve the second objective
+        """
+        self._set_solution_as_hint()
+        self._fix_truck_count(stage1_response.total_trucks)
+        callback = Callback("stage 2")
+
+        start_time = perf_counter()
+        self._cp_status = self.cp_solver.solve(self.model, callback)
+        runtime_seconds = perf_counter() - start_time + stage1_response.runtime_seconds
+
+        return self._build_optimization_response(runtime_seconds)
+
+    def _build_optimization_response(
+        self, runtime_seconds: float
+    ) -> OptimizationResult:
+        if self.is_feasible:
+            # Extract and validate the selected arcs
+            selected_arcs = self.variables.get_selected_arcs(self.cp_solver)
+            validate_solution(selected_arcs, self.instance)
+
+            return OptimizationResult(
+                solver_status=self._cp_status,
+                route_arcs=to_route_arcs(selected_arcs, self.instance),
+                total_trucks=count_trucks(selected_arcs),
+                total_distance=total_distance(selected_arcs, self.instance),
+                runtime_seconds=runtime_seconds,
+            )
+
+        return OptimizationResult(
+            solver_status=self._cp_status,
+            route_arcs=[],
+            total_trucks=None,
+            total_distance=None,
+            runtime_seconds=runtime_seconds,
+        )
+
+    def solve(self) -> OptimizationResult:
+        """
+        Solve the optimization problem.
+        """
+        stage1_response = self._solve_stage1_minimize_trucks()
+
+        if not self.is_feasible:
+            return stage1_response
+
+        stage2_response = self._solve_stage2_minimize_distance(stage1_response)
+
+        return stage2_response
+
+    def _set_solution_as_hint(self) -> None:
+        """
+        Apply warm-start hints to the decision variables.
+        """
+        for i, v in enumerate(self.model.proto.variables):
+            v_ = self.model.get_int_var_from_proto_index(i)
+            if v.name != v_.name:
+                raise ValueError(f"Variable name mismatch: {v.name} != {v_.name}")
+
+            self.model.add_hint(v_, self.cp_solver.value(v_))
