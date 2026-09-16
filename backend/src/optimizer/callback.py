@@ -20,7 +20,7 @@ class Callback(cp_model.CpSolverSolutionCallback):
         self._best_objective: int | None = None
 
     def on_solution_callback(self) -> None:
-        """Record each improving solution at DEBUG level.
+        """Track each improving solution for the stage summary.
 
         Called automatically by OR-Tools during search.
         """
@@ -29,7 +29,6 @@ class Callback(cp_model.CpSolverSolutionCallback):
         if self._first_objective is None:
             self._first_objective = objective
         self._best_objective = objective
-        logger.debug(f"[{self._stage}] objective improved: {objective:,}")
 
     def log_summary(self) -> None:
         """Log a one-line search summary at INFO level.

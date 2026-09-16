@@ -40,13 +40,10 @@ class Variables:
         self._node_idx = np.arange(instance.n_nodes, dtype=np.int32)
         self._arcs = self._create_arcs(instance.n_nodes)
 
-        logger.debug("Creating the model variables...")
-        logger.debug("Creating the arc variables...")
         self._arc_vars = np.array(
             [model.new_bool_var(f"arc_{i}_{j}") for i, j in self._arcs],
             dtype=object,
         )
-        logger.debug("Creating the node load variables...")
         self._node_load_vars = np.array(
             [
                 model.new_int_var(
@@ -55,7 +52,6 @@ class Variables:
                 for idx in self._node_idx
             ]
         )
-        logger.debug("Creating the node start time variables...")
         self._node_start_time_vars = np.array(
             [
                 model.new_int_var(

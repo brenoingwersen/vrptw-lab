@@ -1,5 +1,6 @@
 from time import perf_counter
 
+from loguru import logger
 from ortools.sat.python import cp_model
 
 from domain import OptimizationRequest, OptimizationResult
@@ -9,6 +10,18 @@ from optimizer.instance import ProblemInstance
 from optimizer.utils import count_trucks, to_route_arcs, total_distance
 from optimizer.validators import validate_solution
 from optimizer.variables import Variables
+
+_STATUS_LABELS = {
+    cp_model.OPTIMAL: "OPTIMAL",
+    cp_model.FEASIBLE: "FEASIBLE",
+    cp_model.INFEASIBLE: "INFEASIBLE",
+    cp_model.MODEL_INVALID: "MODEL_INVALID",
+    cp_model.UNKNOWN: "UNKNOWN",
+}
+
+
+def _status_label(status: int) -> str:
+    return _STATUS_LABELS.get(status, str(status))
 
 
 class Solver:
@@ -61,9 +74,11 @@ class Solver:
         self._add_truck_minimization_objective()
         callback = Callback("stage 1")
 
+        logger.info("Stage 1: minimizing truck count")
         start_time = perf_counter()
         self._cp_status = self.cp_solver.solve(self.model, callback)
         runtime_seconds = perf_counter() - start_time
+        callback.log_summary()
 
         return self._build_optimization_response(runtime_seconds)
 
@@ -80,9 +95,13 @@ class Solver:
         self._fix_truck_count(stage1_response.total_trucks)
         callback = Callback("stage 2")
 
+        logger.info(
+            f"Stage 2: minimizing distance (trucks fixed at {stage1_response.total_trucks})"
+        )
         start_time = perf_counter()
         self._cp_status = self.cp_solver.solve(self.model, callback)
         runtime_seconds = perf_counter() - start_time + stage1_response.runtime_seconds
+        callback.log_summary()
 
         return self._build_optimization_response(runtime_seconds)
 
@@ -114,13 +133,26 @@ class Solver:
         """
         Solve the optimization problem.
         """
+        logger.info(
+            f"Starting two-stage VRPTW solve (nodes={self.instance.n_nodes})"
+        )
         stage1_response = self._solve_stage1_minimize_trucks()
 
         if not self.is_feasible:
+            logger.info(
+                f"Solve failed after stage 1: status={_status_label(self._cp_status)}, "
+                f"runtime={stage1_response.runtime_seconds:.2f}s"
+            )
             return stage1_response
 
         stage2_response = self._solve_stage2_minimize_distance(stage1_response)
 
+        logger.info(
+            f"Solve complete: status={_status_label(self._cp_status)}, "
+            f"trucks={stage2_response.total_trucks}, "
+            f"distance={stage2_response.total_distance}, "
+            f"runtime={stage2_response.runtime_seconds:.2f}s"
+        )
         return stage2_response
 
     def _set_solution_as_hint(self) -> None:
