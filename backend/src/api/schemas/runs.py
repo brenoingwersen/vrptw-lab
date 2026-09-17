@@ -50,3 +50,10 @@ class RunResponseSchema(BaseModel):
     truck_capacity: int
     max_time_in_seconds: int | None = None
     random_seed: int | None = None
+
+
+class PlainRunResponseSchema(BaseModel):
+    run_id: str
+    created_at: datetime
+    finished_at: datetime | None
+    status: RunStatus

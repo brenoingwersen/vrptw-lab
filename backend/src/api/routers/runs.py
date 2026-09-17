@@ -28,12 +28,3 @@ async def create_run(
     background_tasks.add_task(execute_run, run.run_id)
     logger.info(f"Executing run {run.run_id}")
     return run
-
-
-@router.get("/", response_model=list[RunResponseSchema])
-def get_runs(db: Annotated[Session, Depends(get_db)], limit: int | None = None):
-    """
-    GET request endpoint to list all available optimization runs.
-    """
-    repository = RunsRepository(db)
-    return repository.list_runs(limit)

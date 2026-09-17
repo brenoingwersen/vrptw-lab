@@ -4,11 +4,11 @@ from datetime import datetime
 from sqlmodel import Session, select
 
 from api.mappers import to_customer, to_run
-from api.models import RunRecord
+from api.models import RunRecord, DatasetRecord
 from api.repository.customers import CustomersRepository
 from api.repository.datasets import DatasetsRepository
 from api.schemas.runs import RunRequestSchema
-from domain import Customer, Run, RunStatus
+from domain import Customer, Run, RunStatus, Dataset
 
 
 class RunsRepository:
@@ -30,12 +30,13 @@ class RunsRepository:
         """
         List runs from the database.
         """
-        statement = select(RunRecord)
-        run_records = (
-            self.db.exec(statement).all()
-            if limit is None
-            else self.db.exec(statement).limit(limit).all()
-        )
+        statement = select(RunRecord).order_by(RunRecord.created_at.desc())
+
+        if limit is not None:
+            statement = statement.limit(limit)
+
+        run_records = self.db.exec(statement).all()
+
         return [to_run(run_record) for run_record in run_records] if run_records else []
 
     def get(self, run_id: str) -> Run | None:
@@ -99,16 +100,21 @@ class RunsRepository:
         self.db.refresh(run_record)
         return to_run(run_record)
 
-    def get_run_instance(self, run_id: str) -> list[Customer]:
-        """
-        Get the instance of a run
-        """
-        run_record = self.get(run_id)
-
+    def get_run_dataset(self, run_id: str) -> Dataset | None:
+        run_record = self._get(run_id)
         if run_record is None:
-            raise ValueError(f"Run with ID {run_id} not found")
+            return None
 
-        customer_records = CustomersRepository(self.db).get_by_dataset_id(
-            run_record.dataset_id
+        dataset_record = self.db.exec(
+            select(DatasetRecord).where(
+                DatasetRecord.dataset_id == run_record.dataset_id
+            )
+        ).first()
+        if dataset_record is None:
+            return None
+
+        return Dataset(
+            dataset_id=dataset_record.dataset_id,
+            name=dataset_record.name,
+            instance=dataset_record.instance,
         )
-        return [to_customer(customer_record) for customer_record in customer_records]

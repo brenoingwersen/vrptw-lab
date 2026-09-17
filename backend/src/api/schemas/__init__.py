@@ -1,3 +1,15 @@
-from .runs import RunRequestSchema, RunResponseSchema
+from .runs import (
+    RunRequestSchema,
+    RunResponseSchema,
+    PlainRunResponseSchema,
+)
 
-__all__ = ["RunRequestSchema", "RunResponseSchema"]
+from .dashboard import DashboardArcResponseSchema, DatasetResponseSchema
+
+__all__ = [
+    "RunRequestSchema",
+    "RunResponseSchema",
+    "PlainRunResponseSchema",
+    "DashboardArcResponseSchema",
+    "DatasetResponseSchema",
+]

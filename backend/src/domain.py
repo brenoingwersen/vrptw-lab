@@ -68,6 +68,14 @@ class Arc(RouteArc):
 
 
 @dataclass(frozen=True)
+class DashboardArc:
+    truck_id: int
+    sequence: int
+    customer_from: Customer
+    customer_to: Customer
+
+
+@dataclass(frozen=True)
 class OptimizationRequest:
     max_trucks: int
     truck_capacity: int
