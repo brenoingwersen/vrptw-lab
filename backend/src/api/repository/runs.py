@@ -3,12 +3,11 @@ from datetime import datetime
 
 from sqlmodel import Session, select
 
-from api.mappers import to_customer, to_run
+from api.mappers import to_plain_run_response, to_run
 from api.models import RunRecord, DatasetRecord
-from api.repository.customers import CustomersRepository
 from api.repository.datasets import DatasetsRepository
-from api.schemas.runs import RunRequestSchema
-from domain import Customer, Run, RunStatus, Dataset
+from api.schemas.runs import PlainRunResponseSchema, RunRequestSchema
+from domain import Dataset, Run, RunStatus
 
 
 class RunsRepository:
@@ -26,18 +25,25 @@ class RunsRepository:
         statement = select(RunRecord).where(RunRecord.run_id == run_id)
         return self.db.exec(statement).first()
 
-    def list_runs(self, limit: int | None = None) -> list[Run]:
+    def list_runs(self, limit: int | None = None) -> list[PlainRunResponseSchema]:
         """
         List runs from the database.
         """
-        statement = select(RunRecord).order_by(RunRecord.created_at.desc())
+        statement = (
+            select(RunRecord, DatasetRecord)
+            .join(DatasetRecord, RunRecord.dataset_id == DatasetRecord.dataset_id)
+            .order_by(RunRecord.created_at.desc())
+        )
 
         if limit is not None:
             statement = statement.limit(limit)
 
-        run_records = self.db.exec(statement).all()
+        rows = self.db.exec(statement).all()
 
-        return [to_run(run_record) for run_record in run_records] if run_records else []
+        return [
+            to_plain_run_response(run_record, dataset_record)
+            for run_record, dataset_record in rows
+        ]
 
     def get(self, run_id: str) -> Run | None:
         """

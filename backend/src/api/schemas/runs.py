@@ -54,6 +54,8 @@ class RunResponseSchema(BaseModel):
 
 class PlainRunResponseSchema(BaseModel):
     run_id: str
+    name: str
+    instance: str
     created_at: datetime
     finished_at: datetime | None
     status: RunStatus

@@ -3,7 +3,7 @@ from dataclasses import asdict
 from ortools.sat.python import cp_model
 
 from api.models import CustomerRecord, DatasetRecord, RunRecord
-from api.schemas.runs import RunResponseSchema
+from api.schemas.runs import PlainRunResponseSchema, RunResponseSchema
 from domain import Customer, Dataset, Run, RunStatus
 
 
@@ -41,6 +41,19 @@ def to_dataset(dataset_record: DatasetRecord) -> Dataset:
         dataset_id=dataset_record.dataset_id,
         name=dataset_record.name,
         instance=dataset_record.instance,
+    )
+
+
+def to_plain_run_response(
+    run_record: RunRecord, dataset_record: DatasetRecord
+) -> PlainRunResponseSchema:
+    return PlainRunResponseSchema(
+        run_id=run_record.run_id,
+        name=dataset_record.name,
+        instance=dataset_record.instance,
+        created_at=run_record.created_at,
+        finished_at=run_record.finished_at,
+        status=run_record.status,
     )
 
 

@@ -58,6 +58,21 @@ def runs_table() -> dag.AgGrid:
             },
         },
         {
+            "field": "name",
+            "headerName": "Dataset",
+            "filter": "agTextColumnFilter",
+            "filterParams": {
+                "buttons": ["reset", "apply"],
+            },
+        },
+        {
+            "field": "instance",
+            "filter": "agTextColumnFilter",
+            "filterParams": {
+                "buttons": ["reset", "apply"],
+            },
+        },
+        {
             "field": "created_at",
             "filter": "agTextColumnFilter",
             "filterParams": {
