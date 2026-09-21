@@ -29,3 +29,9 @@ only-include = ["src"]
 dev = [
     "ruff>=0.16.7",
 ]
+
+[tool.uv]
+package = true
+
+[project.scripts]
+backend = "api.main:main"

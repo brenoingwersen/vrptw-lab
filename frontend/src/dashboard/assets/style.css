@@ -1,0 +1,8 @@
+:root {
+    --bs-body-font-family: "Roboto", sans-serif;
+}
+
+
+body {
+    font-family: var(--bs-body-font-family);
+}

@@ -1,9 +1,15 @@
 from datetime import UTC, datetime
+from enum import StrEnum
 from uuid import uuid4
 
 from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
-from domain import RunStatus
+
+class RunStatus(StrEnum):
+    queued = "queued"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
 
 
 class DatasetRecord(SQLModel, table=True):
@@ -44,6 +50,16 @@ class CustomerRecord(SQLModel, table=True):
 
     dataset: DatasetRecord = Relationship(back_populates="customers")
 
+    outgoing_arcs: list["ArcRecord"] = Relationship(
+        back_populates="cust_from",
+        sa_relationship_kwargs={"foreign_keys": "[ArcRecord.cust_no_from]"},
+    )
+
+    incoming_arcs: list["ArcRecord"] = Relationship(
+        back_populates="cust_to",
+        sa_relationship_kwargs={"foreign_keys": "[ArcRecord.cust_no_to]"},
+    )
+
 
 class RunRecord(SQLModel, table=True):
     """
@@ -83,7 +99,17 @@ class ArcRecord(SQLModel, table=True):
     run_id: str = Field(foreign_key="runs.run_id", primary_key=True)
     truck_id: int
     sequence: int
-    cust_no_from: int = Field(primary_key=True)
-    cust_no_to: int = Field(primary_key=True)
+    cust_no_from: int = Field(primary_key=True, foreign_key="customers.cust_no")
+    cust_no_to: int = Field(primary_key=True, foreign_key="customers.cust_no")
 
     run: RunRecord = Relationship(back_populates="arcs")
+
+    cust_from: "CustomerRecord" = Relationship(
+        back_populates="outgoing_arcs",
+        sa_relationship_kwargs={"foreign_keys": "[ArcRecord.cust_no_from]"},
+    )
+
+    cust_to: "CustomerRecord" = Relationship(
+        back_populates="incoming_arcs",
+        sa_relationship_kwargs={"foreign_keys": "[ArcRecord.cust_no_to]"},
+    )

@@ -2,8 +2,8 @@ from collections.abc import Iterator
 
 import numpy as np
 
-from domain import RouteArc
-from optimizer.instance import ProblemInstance
+from api.optimizer.instance import ProblemInstance
+from api.schemas import SolutionArcSchema
 
 
 def count_trucks(selected_arcs: np.ndarray) -> int:
@@ -77,19 +77,20 @@ def iter_circuits(
 
 def to_route_arcs(
     selected_arcs: np.ndarray, instance: ProblemInstance
-) -> list[RouteArc]:
+) -> list[SolutionArcSchema]:
     """
     Convert the selected arcs to a list of route arcs.
     """
-    route_arcs: list[RouteArc] = []
+    route_arcs: list[SolutionArcSchema] = []
     for truck_id, circuit in enumerate(iter_circuits(selected_arcs), start=1):
         for sequence, arc in enumerate(circuit, start=1):
             route_arcs.append(
-                RouteArc(
+                SolutionArcSchema(
                     truck_id=truck_id,
                     sequence=sequence,
                     cust_no_from=instance.cust_no[arc[0]],
                     cust_no_to=instance.cust_no[arc[1]],
                 )
             )
+
     return route_arcs

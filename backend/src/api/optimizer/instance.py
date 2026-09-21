@@ -1,7 +1,7 @@
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from domain import OptimizationRequest
+from api.schemas import OptimizationRequestSchema
 
 
 class ConstraintsConfig(BaseModel):
@@ -102,7 +102,7 @@ class ProblemInstance(BaseModel):
         return int(np.hypot(dx, dy))
 
     @classmethod
-    def from_request(cls, request: OptimizationRequest) -> "ProblemInstance":
+    def from_request(cls, request: OptimizationRequestSchema) -> "ProblemInstance":
         """
         Create a problem instance from an optimization request DTO.
         """

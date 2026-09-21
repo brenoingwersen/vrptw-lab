@@ -3,13 +3,14 @@ from time import perf_counter
 from loguru import logger
 from ortools.sat.python import cp_model
 
-from domain import OptimizationRequest, OptimizationResult
-from optimizer.callback import Callback
-from optimizer.constraints import Constraints
-from optimizer.instance import ProblemInstance
-from optimizer.utils import count_trucks, to_route_arcs, total_distance
-from optimizer.validators import validate_solution
-from optimizer.variables import Variables
+from api.models import RunStatus
+from api.optimizer.callback import Callback
+from api.optimizer.constraints import Constraints
+from api.optimizer.instance import ProblemInstance
+from api.optimizer.utils import count_trucks, to_route_arcs, total_distance
+from api.optimizer.validators import validate_solution
+from api.optimizer.variables import Variables
+from api.schemas import OptimizationRequestSchema, OptimizationResultSchema
 
 _STATUS_LABELS = {
     cp_model.OPTIMAL: "OPTIMAL",
@@ -25,7 +26,7 @@ def _status_label(status: int) -> str:
 
 
 class Solver:
-    def __init__(self, request: OptimizationRequest):
+    def __init__(self, request: OptimizationRequestSchema):
         self.instance = ProblemInstance.from_request(request)
         self.model = cp_model.CpModel()
 
@@ -67,7 +68,7 @@ class Solver:
             sum(d * v for d, v in zip(distances, self.variables.arc_vars, strict=True))
         )
 
-    def _solve_stage1_minimize_trucks(self) -> OptimizationResult:
+    def _solve_stage1_minimize_trucks(self) -> OptimizationResultSchema:
         """
         Solve the first objective
         """
@@ -86,8 +87,8 @@ class Solver:
         self.model.add(sum(self.variables.arcs_leaving_depot) <= total_trucks)
 
     def _solve_stage2_minimize_distance(
-        self, stage1_response: OptimizationResult
-    ) -> OptimizationResult:
+        self, stage1_response: OptimizationResultSchema
+    ) -> OptimizationResultSchema:
         """
         Solve the second objective
         """
@@ -107,35 +108,33 @@ class Solver:
 
     def _build_optimization_response(
         self, runtime_seconds: float
-    ) -> OptimizationResult:
+    ) -> OptimizationResultSchema:
         if self.is_feasible:
             # Extract and validate the selected arcs
             selected_arcs = self.variables.get_selected_arcs(self.cp_solver)
             validate_solution(selected_arcs, self.instance)
 
-            return OptimizationResult(
-                solver_status=self._cp_status,
-                route_arcs=to_route_arcs(selected_arcs, self.instance),
+            return OptimizationResultSchema(
+                status=RunStatus.completed,
+                arcs=to_route_arcs(selected_arcs, self.instance),
                 total_trucks=count_trucks(selected_arcs),
                 total_distance=total_distance(selected_arcs, self.instance),
                 runtime_seconds=runtime_seconds,
             )
 
-        return OptimizationResult(
-            solver_status=self._cp_status,
-            route_arcs=[],
+        return OptimizationResultSchema(
+            status=RunStatus.failed,
+            arcs=[],
             total_trucks=None,
             total_distance=None,
             runtime_seconds=runtime_seconds,
         )
 
-    def solve(self) -> OptimizationResult:
+    def solve(self) -> OptimizationResultSchema:
         """
         Solve the optimization problem.
         """
-        logger.info(
-            f"Starting two-stage VRPTW solve (nodes={self.instance.n_nodes})"
-        )
+        logger.info(f"Starting two-stage VRPTW solve (nodes={self.instance.n_nodes})")
         stage1_response = self._solve_stage1_minimize_trucks()
 
         if not self.is_feasible:

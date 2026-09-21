@@ -31,8 +31,8 @@ services:
 
   api:
     build:
-      context: .
-      dockerfile: backend/Dockerfile
+      context: backend
+      dockerfile: Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
@@ -40,6 +40,32 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-vrptw}:${POSTGRES_PASSWORD:-vrptw}@postgres:5432/${POSTGRES_DB:-vrptw}
     ports:
       - "8000:8000"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/')",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      API_BASE_URL: "http://api:8000"
+      API_REQUEST_TIMEOUT: 10
+    ports:
+      - "3000:8050" # <browser (computer) port>:<container port>
 
 volumes:
   pgdata:

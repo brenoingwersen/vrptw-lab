@@ -18,8 +18,8 @@ Each function validates one aspect (depot balance, capacity, time windows).
 
 import numpy as np
 
-from optimizer.instance import ProblemInstance
-from optimizer.utils import iter_circuits
+from api.optimizer.instance import ProblemInstance
+from api.optimizer.utils import iter_circuits
 
 
 def validate_depot_balance(selected_arcs: np.ndarray) -> None:

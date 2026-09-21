@@ -23,7 +23,7 @@ import numpy as np
 from loguru import logger
 from ortools.sat.python import cp_model
 
-from optimizer.instance import ProblemInstance
+from api.optimizer.instance import ProblemInstance
 
 
 class Variables:

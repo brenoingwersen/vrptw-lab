@@ -1,7 +1,7 @@
+import uvicorn
 from fastapi import FastAPI
 
-from api.routers.runs import router as runs_router
-from api.routers.dashboard import router as dashboard_router
+from api.routers import router as api_router
 
 
 def create_app() -> FastAPI:
@@ -20,8 +20,11 @@ def create_app() -> FastAPI:
 
 
 def setup_routers(app: FastAPI):
-    app.include_router(runs_router)
-    app.include_router(dashboard_router)
+    app.include_router(api_router)
+
+
+def main() -> None:
+    uvicorn.run("api.main:app", host="0.0.0.0", port=8000, reload=True)
 
 
 app = create_app()

@@ -25,21 +25,3 @@ dagcomponentfuncs.StatusBadge = function (props) {
         props.value
     );
 };
-
-
-dagcomponentfuncs.SelectButton = function (props) {
-    const {setData, data} = props;
-
-    function onClick() {
-        setData();
-    }
-
-    return React.createElement(
-        'button',
-        {
-            onClick: onClick,
-            className: props.className,
-        },
-        props.value
-    );
-};

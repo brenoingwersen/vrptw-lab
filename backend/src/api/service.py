@@ -1,53 +1,51 @@
 from datetime import UTC, datetime
 
-# from loguru import logger
+from loguru import logger
 from sqlmodel import Session
 
 from api.db import engine
-from api.mappers import solver_status_to_run_status
-from api.repository.arcs import ArcsRepository
-from api.repository.customers import CustomersRepository
-from api.repository.runs import RunsRepository
-from domain import OptimizationRequest, OptimizationResult, RunStatus
-from optimizer.solver import Solver
+from api.models import RunStatus
+from api.optimizer import Solver
+from api.repository import Repository
+from api.schemas import OptimizationRequestSchema, OptimizationResultSchema
 
 
 class RunExecutor:
     def __init__(self, db: Session):
-        self.db = db
-        self.runs_repository = RunsRepository(db)
-        self.customers_repository = CustomersRepository(db)
-        self.arcs_repository = ArcsRepository(db)
+        self.repository = Repository(db)
 
     def execute(self, run_id: str) -> None:
-        run = self.runs_repository.update(run_id, status=RunStatus.running)
+        logger.info(f"Running executor for run {run_id}.")
 
-        customers = self.customers_repository.get_by_dataset_id(run.dataset_id)
+        logger.info(f"Changing status for run '{run_id}' to 'running'.")
+        self.repository.update_run(run_id, status=RunStatus.running)
 
-        request = OptimizationRequest(
-            max_trucks=run.max_trucks,
-            truck_capacity=run.truck_capacity,
-            max_time_in_seconds=run.max_time_in_seconds,
-            random_seed=run.random_seed,
-            customers=customers,
+        logger.info(f"Building optimization problem for run {run_id}.")
+        request: OptimizationRequestSchema = (
+            self.repository.get_optimization_request_for_run(run_id)
         )
 
         solver = Solver(request)
-        result: OptimizationResult = solver.solve()
 
-        self.runs_repository.update(
-            run_id,
-            status=solver_status_to_run_status(result.solver_status),
-            finished_at=datetime.now(UTC),
-            total_trucks=result.total_trucks,
-            total_distance=result.total_distance,
-            runtime_seconds=result.runtime_seconds,
-        )
+        logger.info(f"Running the solver for run {run_id}")
+        result: OptimizationResultSchema = solver.solve()
 
-        self.arcs_repository.create(run_id, result.route_arcs)
+        logger.info(f"Solver completed for run {run_id}.")
+
+        logger.info(f"Updating the run's metadata for run {run_id}.")
+        update_payload = result.model_dump(exclude={"arcs"}) | {
+            "finished_at": datetime.now(UTC)
+        }
+        self.repository.update_run(run_id, **update_payload)
+
+        logger.info(f"Updating the run's solution for run {run_id}.")
+        self.repository.create_arcs(run_id, result.arcs)
 
 
-async def execute_run(run_id: str) -> None:
+async def execute_run(run_id: str):
+    """
+    Execute the optimization
+    """
     with Session(engine) as db:
         executor = RunExecutor(db)
         executor.execute(run_id)

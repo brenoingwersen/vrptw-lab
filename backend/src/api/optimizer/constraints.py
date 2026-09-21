@@ -1,7 +1,7 @@
 from ortools.sat.python import cp_model
 
-from optimizer.instance import ProblemInstance
-from optimizer.variables import Variables
+from api.optimizer.instance import ProblemInstance
+from api.optimizer.variables import Variables
 
 
 class Constraints:
