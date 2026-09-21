@@ -12,6 +12,7 @@ from api.schemas import (
     SolutionResponse,
 )
 from api.service import execute_run
+from api.tasks import execute_run_task
 
 router = APIRouter()
 
@@ -54,7 +55,8 @@ async def create_run(
     run = Repository(db).create_run(request)
 
     # Run the executor
-    background_tasks.add_task(execute_run, run.run_id)
+    # background_tasks.add_task(execute_run, run.run_id)
+    execute_run_task.delay(run.run_id)
 
     return run
 

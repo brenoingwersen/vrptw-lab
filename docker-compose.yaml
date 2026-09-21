@@ -36,8 +36,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-vrptw}:${POSTGRES_PASSWORD:-vrptw}@postgres:5432/${POSTGRES_DB:-vrptw}
+      CELERY_BROKER_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
 
@@ -67,6 +70,40 @@ services:
       DEBUG: "false"
     ports:
       - "3000:8050" # <browser (computer) port>:<container port>
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  worker:
+    build:
+      context: backend
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-vrptw}:${POSTGRES_PASSWORD:-vrptw}@postgres:5432/${POSTGRES_DB:-vrptw}
+      CELERY_BROKER_URL: redis://redis:6379/0
+    command:
+      [
+        "uv",
+        "run",
+        "celery",
+        "-A",
+        "api.celery_app",
+        "worker",
+        "--loglevel=info",
+        "--concurrency=1",
+      ]
 
 volumes:
   pgdata:

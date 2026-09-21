@@ -49,3 +49,11 @@ async def execute_run(run_id: str):
     with Session(engine) as db:
         executor = RunExecutor(db)
         executor.execute(run_id)
+
+
+def execute_run_sync(run_id: str) -> None:
+    """
+    Execute the optimization synchronously
+    """
+    with Session(engine) as db:
+        RunExecutor(db).execute(run_id)
