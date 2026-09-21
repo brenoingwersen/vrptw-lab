@@ -54,12 +54,13 @@ class Repository:
         if len(records) == 0:
             return []
 
-        return [
+        runs = [
             RunDetailResponse.model_validate(
                 run.model_dump() | {"name": dataset.name, "instance": dataset.instance}
             )
             for run, dataset in records
         ]
+        return sorted(runs, key=lambda r: r.created_at, reverse=True)
 
     def create_run(self, request: RunCreateRequest) -> RunDetailResponse:
         """

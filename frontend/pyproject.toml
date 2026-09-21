@@ -28,7 +28,7 @@ package = true
 where = ["src"]
 
 [project.scripts]
-frontend = "dashboard.app:create_app"
+frontend = "dashboard.app:main"
 
 [tool.ruff]
 line-length = 88

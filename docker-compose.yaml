@@ -47,7 +47,7 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/')",
+          "import urllib.request; urllib.request.urlopen('http://api:8000/health')",
         ]
       interval: 5s
       timeout: 5s
@@ -63,7 +63,8 @@ services:
         condition: service_healthy
     environment:
       API_BASE_URL: "http://api:8000"
-      API_REQUEST_TIMEOUT: 10
+      REQUEST_TIMEOUT: 10
+      DEBUG: "false"
     ports:
       - "3000:8050" # <browser (computer) port>:<container port>
 

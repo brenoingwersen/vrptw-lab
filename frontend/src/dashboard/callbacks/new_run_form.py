@@ -5,11 +5,8 @@ import httpx
 from dash import Input, Output, State, callback
 from loguru import logger
 
-from dashboard.api_client import APIClient
+from dashboard.api_client import api
 from dashboard.contracts import Dataset, RunRequest
-
-api = APIClient()
-
 
 _ALERT_CLASSNAME = "mb-0 w-100"
 

@@ -1,10 +1,8 @@
 from dash import Input, Output, State, callback
 
-from dashboard.api_client import APIClient
+from dashboard.api_client import api, call_api
 from dashboard.contracts import RunResponse, SolutionResponse
 from dashboard.settings import MAX_CACHED_SOLUTIONS
-
-api = APIClient()
 
 
 def _get_cached_solution(
@@ -53,7 +51,7 @@ def update_runs_table(runs: list[RunResponse]) -> list[RunResponse]:
 )
 def select_solution(
     selected_rows: list[RunResponse], solutions_cache: list[SolutionResponse]
-) -> tuple[list[RunResponse], RunResponse | None]:
+) -> tuple[list[SolutionResponse], RunResponse | None]:
     """
     Callback to select a solution when a run is selected
     """
@@ -65,12 +63,18 @@ def select_solution(
     if run_id is None:
         return solutions_cache, None
 
-    # Get the cached solution or fetch it from the backend
-    cached_solution = _get_cached_solution(
-        solutions_cache, run_id
-    ) or api.get_run_solution(run_id)
+    cached_solution = _get_cached_solution(solutions_cache, run_id)
+    if cached_solution is not None:
+        return solutions_cache, selected_run
 
-    # Cache the solution
-    solutions_cache = _cache_solution(solutions_cache, run_id, cached_solution)
+    fetched_solution = call_api(
+        lambda: api.get_run_solution(run_id),
+        context=f"Failed to fetch solution for run {run_id}",
+        fallback=None,
+    )
+    if fetched_solution is None:
+        return solutions_cache, selected_run
+
+    solutions_cache = _cache_solution(solutions_cache, run_id, fetched_solution)
 
     return solutions_cache, selected_run

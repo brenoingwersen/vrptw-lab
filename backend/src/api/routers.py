@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, status
 from sqlmodel import Session
 
 from api.db import get_db
@@ -67,3 +67,9 @@ async def get_solution_for_run(
     Endpoint to get the solution for a given run by its ID
     """
     return Repository(db).get_solution_for_run(run_id)
+
+
+@router.get("/health", status_code=status.HTTP_200_OK)
+def health_check() -> dict[str, str]:
+    """Check whether the API is alive."""
+    return {"status": "ok"}

@@ -11,4 +11,4 @@ COPY src/ src/
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen
 
-CMD ["uv", "run", "dashboard"]
+CMD ["uv", "run", "frontend"]

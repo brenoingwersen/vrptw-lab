@@ -37,6 +37,7 @@ def runs_table() -> dbc.Row:
             "filterParams": {
                 "buttons": ["reset", "apply"],
             },
+            "sort": "desc",
         },
         {
             "headerName": "Finished At",
