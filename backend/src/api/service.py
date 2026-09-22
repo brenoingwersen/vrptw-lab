@@ -42,15 +42,6 @@ class RunExecutor:
         self.repository.create_arcs(run_id, result.arcs)
 
 
-async def execute_run(run_id: str):
-    """
-    Execute the optimization
-    """
-    with Session(engine) as db:
-        executor = RunExecutor(db)
-        executor.execute(run_id)
-
-
 def execute_run_sync(run_id: str) -> None:
     """
     Execute the optimization synchronously

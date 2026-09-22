@@ -22,6 +22,10 @@ class DatasetSchema(BaseModel):
 
 
 class RunRequestMetadata(BaseModel):
+    """
+    Schema for the request metadata.
+    """
+
     # Constraints
     max_trucks: int = Field(..., gt=0)
     truck_capacity: int = Field(..., gt=0)
@@ -32,6 +36,10 @@ class RunRequestMetadata(BaseModel):
 
 
 class RunCreateRequest(RunRequestMetadata):
+    """
+    Schema for requesting a new optimization run.
+    """
+
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={
@@ -63,6 +71,10 @@ class RunResultMetadata(BaseModel):
 
 
 class RunDetailResponse(RunCreateRequest, RunResultMetadata):
+    """
+    Schema for returning the run details
+    """
+
     model_config = ConfigDict(from_attributes=True)
 
     run_id: str
@@ -72,7 +84,7 @@ class RunDetailResponse(RunCreateRequest, RunResultMetadata):
 
 class CustomerSchema(BaseModel):
     """
-    A full customer record
+    Customer schema
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -87,6 +99,11 @@ class CustomerSchema(BaseModel):
 
 
 class SolutionArcSchema(BaseModel):
+    """
+    Schema for a route segment with ``truck_id``,
+    ``sequence``, ``cust_no_from`` and ``cust_no_to`` fields.
+    """
+
     model_config = ConfigDict(from_attributes=True)
 
     truck_id: int
@@ -97,7 +114,8 @@ class SolutionArcSchema(BaseModel):
 
 class ArcSchema(BaseModel):
     """
-    One route segment with resolved customer coordinates
+    Schema for a route segment with the resolved customer coordinates
+    and other features.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -110,7 +128,7 @@ class ArcSchema(BaseModel):
 
 class SolutionResponse(BaseModel):
     """
-    A complete solution response with run details and route segments
+    Schema for the optimization result returned by the solver
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -121,7 +139,7 @@ class SolutionResponse(BaseModel):
 
 class OptimizationRequestSchema(RunRequestMetadata):
     """
-    A request to optimize a run
+    Schema for the optimization request sent to the solver
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -130,5 +148,9 @@ class OptimizationRequestSchema(RunRequestMetadata):
 
 
 class OptimizationResultSchema(RunResultMetadata):
+    """
+    Schema for the optimization result returned by the solver
+    """
+
     model_config = ConfigDict(from_attributes=True)
     arcs: list[SolutionArcSchema]
