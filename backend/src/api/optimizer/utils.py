@@ -1,3 +1,10 @@
+"""Pure helpers for arc lists, route metrics, and solver output conversion.
+
+Used by ``Solver`` (objective metrics and response building), ``validators``
+(circuit decomposition), and export code. Functions operate on selected arc
+arrays extracted from a CP-SAT solution.
+"""
+
 from collections.abc import Iterator
 
 import numpy as np
@@ -26,7 +33,7 @@ def count_trucks(selected_arcs: np.ndarray) -> int:
 def total_distance(selected_arcs: np.ndarray, instance: ProblemInstance) -> int:
     """Return total travel distance across all selected arcs.
 
-    Uses ``VRPTWInstance.travel_time`` so distance matches the model objective.
+    Uses ``ProblemInstance.travel_time`` so distance matches the model objective.
 
     Args:
         selected_arcs: 2D array of shape ``(n_selected, 2)`` with node indices.
@@ -61,7 +68,7 @@ def iter_circuits(
         Lists of ``(from_node, to_node)`` tuples, one list per truck route.
     """
     if selected_arcs.size == 0:
-        return
+        return []
 
     arc_lookup = _arc_by_from(selected_arcs)
     leaving_depot = selected_arcs[selected_arcs[:, 0] == 0]
@@ -78,8 +85,14 @@ def iter_circuits(
 def to_route_arcs(
     selected_arcs: np.ndarray, instance: ProblemInstance
 ) -> list[SolutionArcSchema]:
-    """
-    Convert the selected arcs to a list of route arcs.
+    """Convert selected arcs to ordered route segments for persistence.
+
+    Args:
+        selected_arcs: 2D array of shape ``(n_selected, 2)`` with node indices.
+        instance: Source problem instance for customer number lookup.
+
+    Returns:
+        Route segments with ``truck_id``, ``sequence``, and customer numbers.
     """
     route_arcs: list[SolutionArcSchema] = []
     for truck_id, circuit in enumerate(iter_circuits(selected_arcs), start=1):

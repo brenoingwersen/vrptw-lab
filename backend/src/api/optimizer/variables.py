@@ -2,13 +2,13 @@
 
 This module creates and indexes OR-Tools variables. It does **not** add
 constraints, set objectives, or run the solver— those responsibilities belong
-to ``VRPTWSolver``.
+to ``Solver``.
 
 Separation of concerns:
 
-    * ``VRPTWVariables`` — variable creation, arc indexing, and solution extraction.
-    * ``VRPTWSolver`` — constraint posting and two-stage optimization.
-    * ``routes`` — pure functions over selected arcs after a solve.
+    * ``Variables`` — variable creation, arc indexing, and solution extraction.
+    * ``Solver`` — constraint posting and two-stage optimization.
+    * ``utils`` — pure functions over selected arcs after a solve.
 
 The three variable families mirror the VRPTW structure:
 
@@ -27,15 +27,19 @@ from api.optimizer.instance import ProblemInstance
 
 
 class Variables:
-    """
-    Container for all CP-SAT decision variables in a VRPTW model.
-    """
+    """Container for all CP-SAT decision variables in a VRPTW model."""
 
     def __init__(
         self,
         instance: ProblemInstance,
         model: cp_model.CpModel,
     ):
+        """Create arc, load, and start-time variables for one model.
+
+        Args:
+            instance: Problem data for bounds and arc geometry.
+            model: CP-SAT model receiving the new variables.
+        """
         self.instance = instance
         self._node_idx = np.arange(instance.n_nodes, dtype=np.int32)
         self._arcs = self._create_arcs(instance.n_nodes)

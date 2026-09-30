@@ -1,3 +1,9 @@
+"""VRPTW problem instance built from API optimization requests.
+
+``ProblemInstance`` holds numpy arrays for customer data and exposes
+``travel_time`` for shared distance geometry used by the solver and utilities.
+"""
+
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -5,28 +11,21 @@ from api.schemas import OptimizationRequestSchema
 
 
 class ConstraintsConfig(BaseModel):
-    """
-    Configuration for the constraints for the optimization problem.
-    """
+    """Fleet and capacity limits for one optimization run."""
 
     max_trucks: int = Field(..., gt=0)
     truck_capacity: int = Field(..., gt=0)
 
 
 class SolverConfig(BaseModel):
-    """
-    Configuration for the solver.
-    """
+    """Optional CP-SAT time limit and random seed."""
 
     max_time_in_seconds: int | None = None
     random_seed: int | None = None
 
 
 class ProblemInstance(BaseModel):
-    """
-    VRPTW problem instance defining all the optimization problem
-    including constraints and solver configuration.
-    """
+    """VRPTW problem data including constraints and solver configuration."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -103,8 +102,13 @@ class ProblemInstance(BaseModel):
 
     @classmethod
     def from_request(cls, request: OptimizationRequestSchema) -> "ProblemInstance":
-        """
-        Create a problem instance from an optimization request DTO.
+        """Build a problem instance from an optimization request DTO.
+
+        Args:
+            request: Run constraints, solver settings, and customer rows.
+
+        Returns:
+            Validated instance ready for model construction.
         """
         return cls(
             solver_config=SolverConfig(

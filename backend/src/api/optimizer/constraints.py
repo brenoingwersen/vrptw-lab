@@ -1,3 +1,10 @@
+"""CP-SAT constraint posting for the VRPTW model.
+
+Posts circuit, fleet-size, capacity, and time-window constraints onto a
+``CpModel`` using variables from ``Variables``. Called once during ``Solver``
+initialization.
+"""
+
 from ortools.sat.python import cp_model
 
 from api.optimizer.instance import ProblemInstance
@@ -5,12 +12,18 @@ from api.optimizer.variables import Variables
 
 
 class Constraints:
+    """Static helpers that post VRPTW constraints onto a CP-SAT model."""
+
     @staticmethod
     def add_constraints(
         model: cp_model.CpModel, variables: Variables, instance: ProblemInstance
     ):
-        """
-        Add the constraints to the model.
+        """Post all VRPTW constraints onto the model.
+
+        Args:
+            model: CP-SAT model under construction.
+            variables: Decision variables for arcs, loads, and start times.
+            instance: Problem data for fleet limits and time-window bounds.
         """
         Constraints._constraint_circuits(model, variables)
         Constraints._constraint_max_trucks(model, variables, instance)
@@ -19,9 +32,7 @@ class Constraints:
 
     @staticmethod
     def _constraint_circuits(model: cp_model.CpModel, variables: Variables):
-        """
-        Constraint the circuits.
-        """
+        """Enforce depot-to-depot circuits via ``add_multiple_circuit``."""
         model.add_multiple_circuit(
             [node_from, node_to, var]
             for (node_from, node_to), var in variables.iter_arcs()
@@ -31,18 +42,14 @@ class Constraints:
     def _constraint_max_trucks(
         model: cp_model.CpModel, variables: Variables, instance: ProblemInstance
     ):
-        """
-        Constraint the maximum number of trucks.
-        """
+        """Cap the number of depot-leaving arcs at ``max_trucks``."""
         model.add(
             sum(variables.arcs_leaving_depot) <= instance.constraints_config.max_trucks
         )
 
     @staticmethod
     def _constraint_load(model: cp_model.CpModel, variables: Variables):
-        """
-        Constraint the load.
-        """
+        """Enforce cumulative load along active arcs, with zero load at the depot."""
         model.add(variables.node_load_vars[0] == 0)
 
         for (
@@ -62,9 +69,7 @@ class Constraints:
     def _constraint_time_windows(
         model: cp_model.CpModel, variables: Variables, instance: ProblemInstance
     ):
-        """
-        Constraint the time windows.
-        """
+        """Link service start times across active arcs respecting travel and service."""
         for (
             node_from,
             node_to,

@@ -1,3 +1,5 @@
+"""SQLModel table definitions for datasets, customers, runs, and arcs."""
+
 from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import uuid4
@@ -6,6 +8,8 @@ from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
 
 class RunStatus(StrEnum):
+    """Lifecycle status of an optimization run."""
+
     queued = "queued"
     running = "running"
     completed = "completed"
@@ -13,8 +17,7 @@ class RunStatus(StrEnum):
 
 
 class DatasetRecord(SQLModel, table=True):
-    """
-    Datasets table model.
+    """Benchmark dataset metadata (name and instance identifier).
 
     PKs: (dataset_id)
     """
@@ -31,8 +34,7 @@ class DatasetRecord(SQLModel, table=True):
 
 
 class CustomerRecord(SQLModel, table=True):
-    """
-    Customers table model
+    """Customer node belonging to a dataset.
 
     PKs: (dataset_id, cust_no)
     """
@@ -62,8 +64,7 @@ class CustomerRecord(SQLModel, table=True):
 
 
 class RunRecord(SQLModel, table=True):
-    """
-    Runs table model.
+    """One optimization run and its solver results.
 
     PKs: (run_id)
     """
@@ -88,8 +89,7 @@ class RunRecord(SQLModel, table=True):
 
 
 class ArcRecord(SQLModel, table=True):
-    """
-    Arcs table model.
+    """One route segment stored for a completed run.
 
     PKs: (run_id, cust_no_from, cust_no_to)
     """

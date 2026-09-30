@@ -7,10 +7,11 @@ solution data before results are returned or exported.
 
 Separation of concerns:
 
-    * ``VRPTWSolver`` — builds constraints and trusts OR-Tools, then calls
+    * ``Solver`` — builds constraints and trusts OR-Tools, then calls
       ``validate_solution`` as a safety net on feasible runs.
     * ``validators`` — standalone checks usable in tests or notebooks.
-    * ``routes`` — circuit decomposition shared by validators and export code.
+    * ``utils.iter_circuits`` — circuit decomposition shared by validators and
+      export code.
 
 Each function validates one aspect (depot balance, capacity, time windows).
 ``validate_solution`` runs all checks in sequence.

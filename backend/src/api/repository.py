@@ -1,3 +1,5 @@
+"""Database access layer for datasets, runs, customers, and solution arcs."""
+
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
@@ -15,14 +17,18 @@ from api.schemas import (
 
 
 class Repository:
-    """
-    Connects and fetch data from the database to the API.
-    """
+    """Connects to the database and fetches or persists API data."""
 
     def __init__(self, db: Session):
+        """Attach a SQLModel session for the lifetime of one request or task.
+
+        Args:
+            db: Active database session.
+        """
         self.db = db
 
     def _get_run_record(self, run_id: str) -> RunRecord:
+        """Load a run row or raise 404."""
         run_record = self.db.exec(
             select(RunRecord).where(RunRecord.run_id == run_id)
         ).first()
@@ -33,8 +39,10 @@ class Repository:
         return run_record
 
     def list_datasets(self) -> list[DatasetSchema]:
-        """
-        Return all available datasets from the database.
+        """Return all benchmark datasets stored in the database.
+
+        Returns:
+            List of dataset name and instance pairs.
         """
         return [
             DatasetSchema.model_validate(record)
@@ -42,8 +50,10 @@ class Repository:
         ]
 
     def list_runs(self) -> list[RunDetailResponse]:
-        """
-        Return all available runs from the database.
+        """Return all runs with dataset metadata, newest first.
+
+        Returns:
+            Empty list when no runs exist.
         """
         records = self.db.exec(
             select(RunRecord, DatasetRecord)
@@ -63,8 +73,16 @@ class Repository:
         return sorted(runs, key=lambda r: r.created_at, reverse=True)
 
     def create_run(self, request: RunCreateRequest) -> RunDetailResponse:
-        """
-        Create a new run record in the database
+        """Persist a new queued run for the requested dataset.
+
+        Args:
+            request: Dataset selection, constraints, and solver parameters.
+
+        Returns:
+            The created run with ``queued`` status.
+
+        Raises:
+            HTTPException: If the dataset name and instance pair is not found.
         """
         dataset_record = self.db.exec(
             select(DatasetRecord)
@@ -93,8 +111,13 @@ class Repository:
         return RunDetailResponse.model_validate(response)
 
     def get_run(self, run_id: str) -> RunDetailResponse:
-        """
-        Get a run record from the database
+        """Return run metadata joined with dataset name and instance.
+
+        Args:
+            run_id: Primary key of the run.
+
+        Raises:
+            HTTPException: If ``run_id`` does not exist.
         """
         run_record = self._get_run_record(run_id)
 
@@ -113,8 +136,17 @@ class Repository:
         )
 
     def update_run(self, run_id: str, **kwargs) -> RunRecord:
-        """
-        Update a run record in the database
+        """Update fields on an existing run record.
+
+        Args:
+            run_id: Primary key of the run.
+            **kwargs: Column names and values to set.
+
+        Returns:
+            Refreshed run row after commit.
+
+        Raises:
+            HTTPException: If ``run_id`` does not exist.
         """
         record = self._get_run_record(run_id)
         for key, value in kwargs.items():
@@ -124,8 +156,16 @@ class Repository:
         return record
 
     def get_customers_for_run(self, run_id: str) -> list[CustomerSchema]:
-        """
-        Get the customers for a given run by its ``run_id``.
+        """Return all customers for the dataset linked to a run.
+
+        Args:
+            run_id: Primary key of the run.
+
+        Returns:
+            Customer rows for the run's dataset.
+
+        Raises:
+            ValueError: If the dataset has no customers.
         """
         customers = self.db.exec(
             select(CustomerRecord).where(
@@ -141,8 +181,13 @@ class Repository:
     def get_optimization_request_for_run(
         self, run_id: str
     ) -> OptimizationRequestSchema:
-        """
-        Get the optimization request for a given run by its ``run_id``.
+        """Build the solver input DTO for a run.
+
+        Args:
+            run_id: Primary key of the run.
+
+        Returns:
+            Run constraints plus all customer nodes for the dataset.
         """
         run = self.get_run(run_id)
 
@@ -154,16 +199,26 @@ class Repository:
         )
 
     def get_arcs_for_run(self, run_id: str) -> list[ArcSchema]:
-        """
-        Get the arcs for a given run by its ``run_id``.
+        """Return stored solution arcs with resolved customer coordinates.
+
+        Args:
+            run_id: Primary key of the run.
         """
         arcs = self.db.exec(select(ArcRecord).where(ArcRecord.run_id == run_id)).all()
 
         return [ArcSchema.model_validate(arc) for arc in arcs]
 
     def get_solution_for_run(self, run_id: str) -> SolutionResponse:
-        """
-        Build the solution for a given run by its ``run_id``.
+        """Return run metadata plus route arcs for ``run_id``.
+
+        Args:
+            run_id: Primary key of the run.
+
+        Returns:
+            Combined run detail and arc list.
+
+        Raises:
+            HTTPException: If the run has no stored arcs.
         """
         run = self.get_run(run_id).model_dump()
 
@@ -176,16 +231,12 @@ class Repository:
         return SolutionResponse.model_validate({"run": run, "arcs": arcs})
 
     def create_arcs(self, run_id: str, arcs: list[SolutionArcSchema]) -> None:
-        """
-        Store the solution arcs for a given run by its ``run_id``.
+        """Persist solver output arcs for a run.
+
+        Args:
+            run_id: Primary key of the run.
+            arcs: Route segments returned by ``Solver``.
         """
         arcs_records = [ArcRecord(run_id=run_id, **arc.model_dump()) for arc in arcs]
         self.db.add_all(arcs_records)
         self.db.commit()
-
-    def list_runs_with_solutions(
-        self, limit: int | None = None
-    ) -> list[SolutionResponse]:
-        """
-        List all runs with their solutions
-        """

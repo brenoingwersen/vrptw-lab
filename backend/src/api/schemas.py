@@ -1,7 +1,8 @@
-"""Schemas for the API endpoints.
+"""Pydantic schemas for API request and response contracts.
 
-Schemas define the data contracts between the API and the services connected to it
-which include: ``Optimizer``, database and frontend.
+Schemas define data exchanged between the HTTP layer, ``Repository``,
+``Solver``, and the frontend. They are not ORM models; see ``models.py`` for
+database tables.
 """
 
 from datetime import datetime
@@ -12,9 +13,7 @@ from api.models import RunStatus
 
 
 class DatasetSchema(BaseModel):
-    """
-    One dataset record
-    """
+    """One benchmark dataset (name and instance identifier)."""
 
     model_config = ConfigDict(from_attributes=True)
     name: str
@@ -22,9 +21,7 @@ class DatasetSchema(BaseModel):
 
 
 class RunRequestMetadata(BaseModel):
-    """
-    Schema for the request metadata.
-    """
+    """Solver constraints and parameters shared by create and optimize requests."""
 
     # Constraints
     max_trucks: int = Field(..., gt=0)
@@ -36,9 +33,7 @@ class RunRequestMetadata(BaseModel):
 
 
 class RunCreateRequest(RunRequestMetadata):
-    """
-    Schema for requesting a new optimization run.
-    """
+    """Payload for creating a new optimization run."""
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -60,9 +55,7 @@ class RunCreateRequest(RunRequestMetadata):
 
 
 class RunResultMetadata(BaseModel):
-    """
-    Solver status, runtime and objective values
-    """
+    """Solver status, runtime, and objective values for a completed run."""
 
     status: RunStatus
     total_trucks: int | None
@@ -71,9 +64,7 @@ class RunResultMetadata(BaseModel):
 
 
 class RunDetailResponse(RunCreateRequest, RunResultMetadata):
-    """
-    Schema for returning the run details
-    """
+    """Run metadata returned by list, create, and detail endpoints."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -83,9 +74,7 @@ class RunDetailResponse(RunCreateRequest, RunResultMetadata):
 
 
 class CustomerSchema(BaseModel):
-    """
-    Customer schema
-    """
+    """One customer node with coordinates, demand, and time window."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -99,10 +88,7 @@ class CustomerSchema(BaseModel):
 
 
 class SolutionArcSchema(BaseModel):
-    """
-    Schema for a route segment with ``truck_id``,
-    ``sequence``, ``cust_no_from`` and ``cust_no_to`` fields.
-    """
+    """One route segment with truck, sequence, and customer endpoints."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -113,10 +99,7 @@ class SolutionArcSchema(BaseModel):
 
 
 class ArcSchema(BaseModel):
-    """
-    Schema for a route segment with the resolved customer coordinates
-    and other features.
-    """
+    """One route segment with resolved customer coordinates."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -127,9 +110,7 @@ class ArcSchema(BaseModel):
 
 
 class SolutionResponse(BaseModel):
-    """
-    Schema for the optimization result returned by the solver
-    """
+    """Full solution for a run: metadata plus route arcs with coordinates."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -138,9 +119,7 @@ class SolutionResponse(BaseModel):
 
 
 class OptimizationRequestSchema(RunRequestMetadata):
-    """
-    Schema for the optimization request sent to the solver
-    """
+    """Input passed from ``Repository`` to ``Solver`` for one run."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -148,9 +127,7 @@ class OptimizationRequestSchema(RunRequestMetadata):
 
 
 class OptimizationResultSchema(RunResultMetadata):
-    """
-    Schema for the optimization result returned by the solver
-    """
+    """Output returned by ``Solver`` before persistence."""
 
     model_config = ConfigDict(from_attributes=True)
     arcs: list[SolutionArcSchema]

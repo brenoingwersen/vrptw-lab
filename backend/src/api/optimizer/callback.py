@@ -1,11 +1,11 @@
+"""CP-SAT search progress callback for solver stage logging."""
+
 from loguru import logger
 from ortools.sat.python import cp_model
 
 
 class Callback(cp_model.CpSolverSolutionCallback):
-    """
-    Callback class that tracks and logs CP-SAT search progress for one solve stage.
-    """
+    """Track and log CP-SAT search progress for one solve stage."""
 
     def __init__(self, stage: str = "search"):
         """Initialize callback state for a named solve stage.

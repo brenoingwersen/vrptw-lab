@@ -1,7 +1,8 @@
+"""Celery application configured for long-running solver tasks."""
+
 import os
 
 from celery import Celery
-
 
 broker_url = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
 celery_app = Celery("vrptw", broker=broker_url)

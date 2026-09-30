@@ -1,3 +1,10 @@
+"""Two-stage CP-SAT solver for VRPTW instances.
+
+Builds a model from ``ProblemInstance``, posts constraints via ``Constraints``,
+creates decision variables via ``Variables``, and runs a two-stage optimization:
+minimize trucks, then minimize distance with the fleet size fixed.
+"""
+
 from time import perf_counter
 
 from loguru import logger
@@ -22,11 +29,23 @@ _STATUS_LABELS = {
 
 
 def _status_label(status: int) -> str:
+    """Return a human-readable CP-SAT status label."""
     return _STATUS_LABELS.get(status, str(status))
 
 
 class Solver:
+    """Two-stage CP-SAT solver for VRPTW instances.
+
+    Builds the model via ``Variables`` and ``Constraints``, runs stage 1
+    (minimize trucks) then stage 2 (minimize distance with fixed fleet).
+    """
+
     def __init__(self, request: OptimizationRequestSchema):
+        """Build the CP-SAT model from an optimization request.
+
+        Args:
+            request: Run constraints, solver settings, and customer data.
+        """
         self.instance = ProblemInstance.from_request(request)
         self.model = cp_model.CpModel()
 
@@ -39,12 +58,11 @@ class Solver:
 
     @property
     def is_feasible(self) -> bool:
+        """Return whether the last solve finished with a feasible or optimal status."""
         return self._cp_status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
 
     def _configure_solver(self) -> None:
-        """
-        Create and configure the CP-SAT solver instance.
-        """
+        """Create and configure the CP-SAT solver instance."""
         cp_solver = cp_model.CpSolver()
 
         max_time_in_seconds = self.instance.solver_config.max_time_in_seconds
@@ -58,10 +76,12 @@ class Solver:
         self.cp_solver = cp_solver
 
     def _add_truck_minimization_objective(self) -> None:
+        """Set the objective to minimize the number of depot-leaving arcs."""
         self.model.clear_objective()
         self.model.minimize(sum(self.variables.arcs_leaving_depot))
 
     def _add_distance_minimization_objective(self) -> None:
+        """Set the objective to minimize total travel distance."""
         distances = self.variables.arc_distance
         self.model.clear_objective()
         self.model.minimize(
@@ -69,8 +89,11 @@ class Solver:
         )
 
     def _solve_stage1_minimize_trucks(self) -> OptimizationResultSchema:
-        """
-        Solve the first objective
+        """Run stage 1: minimize the number of trucks used.
+
+        Returns:
+            Partial result with truck count and runtime; arcs may be empty if
+            infeasible.
         """
         self._add_truck_minimization_objective()
         callback = Callback("stage 1")
@@ -84,13 +107,19 @@ class Solver:
         return self._build_optimization_response(runtime_seconds)
 
     def _fix_truck_count(self, total_trucks: int) -> None:
+        """Cap depot-leaving arcs at the fleet size found in stage 1."""
         self.model.add(sum(self.variables.arcs_leaving_depot) <= total_trucks)
 
     def _solve_stage2_minimize_distance(
         self, stage1_response: OptimizationResultSchema
     ) -> OptimizationResultSchema:
-        """
-        Solve the second objective
+        """Run stage 2: minimize distance with truck count fixed from stage 1.
+
+        Args:
+            stage1_response: Result from stage 1, used for truck count and hints.
+
+        Returns:
+            Final optimization result including validated route arcs.
         """
         self._set_solution_as_hint()
         self._fix_truck_count(stage1_response.total_trucks)
@@ -109,8 +138,11 @@ class Solver:
     def _build_optimization_response(
         self, runtime_seconds: float
     ) -> OptimizationResultSchema:
+        """Build a result DTO from the current solver state.
+
+        Validates selected arcs when feasible; returns a failed status otherwise.
+        """
         if self.is_feasible:
-            # Extract and validate the selected arcs
             selected_arcs = self.variables.get_selected_arcs(self.cp_solver)
             validate_solution(selected_arcs, self.instance)
 
@@ -131,8 +163,11 @@ class Solver:
         )
 
     def solve(self) -> OptimizationResultSchema:
-        """
-        Solve the optimization problem.
+        """Run the full two-stage VRPTW optimization.
+
+        Returns:
+            Final result after stage 2, or a failed result if stage 1 is
+            infeasible.
         """
         logger.info(f"Starting two-stage VRPTW solve (nodes={self.instance.n_nodes})")
         stage1_response = self._solve_stage1_minimize_trucks()
@@ -155,9 +190,7 @@ class Solver:
         return stage2_response
 
     def _set_solution_as_hint(self) -> None:
-        """
-        Apply warm-start hints to the decision variables.
-        """
+        """Apply warm-start hints from the stage 1 solution to decision variables."""
         for i, v in enumerate(self.model.proto.variables):
             v_ = self.model.get_int_var_from_proto_index(i)
             if v.name != v_.name:

@@ -28,7 +28,10 @@ only-include = ["src"]
 
 [dependency-groups]
 dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
     "ruff>=0.16.7",
+    "ty>=0.0.83",
 ]
 
 [tool.uv]
@@ -36,3 +39,21 @@ package = true
 
 [project.scripts]
 backend = "api.main:main"
+
+[tool.pyright]
+extraPaths = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff.lint]
+select = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+"src/api/__init__.py" = ["D"]
+"src/api/optimizer/__init__.py" = ["D"]

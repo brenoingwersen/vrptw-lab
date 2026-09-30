@@ -1,3 +1,5 @@
+"""FastAPI routes for datasets, runs, and health checks."""
+
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, status
@@ -18,17 +20,13 @@ router = APIRouter()
 
 @router.get("/datasets", response_model=list[DatasetSchema])
 async def list_datasets(db: Annotated[Session, Depends(get_db)]) -> list[DatasetSchema]:
-    """
-    Endpoint to list all available datasets
-    """
+    """List all benchmark datasets available in the database."""
     return Repository(db).list_datasets()
 
 
 @router.get("/runs", response_model=list[RunDetailResponse])
 async def list_runs(db: Annotated[Session, Depends(get_db)]) -> list[RunDetailResponse]:
-    """
-    Endpoint to list all available runs
-    """
+    """List all optimization runs, newest first."""
     return Repository(db).list_runs()
 
 
@@ -36,8 +34,9 @@ async def list_runs(db: Annotated[Session, Depends(get_db)]) -> list[RunDetailRe
 async def get_run_solution(
     db: Annotated[Session, Depends(get_db)], run_id: str
 ) -> RunDetailResponse:
-    """
-    Endpoint to get the solution for a given run by its ID
+    """Return run status, config, and metrics for ``run_id``.
+
+    Does not include route arcs; use ``GET /runs/{run_id}/solution`` for that.
     """
     return Repository(db).get_run(run_id)
 
@@ -48,8 +47,10 @@ async def create_run(
     request: RunCreateRequest,
     background_tasks: BackgroundTasks,
 ) -> RunDetailResponse:
-    """
-    Endpoint to create a new run
+    """Create a run and enqueue a Celery solver job.
+
+    Returns the queued run record immediately; the worker updates status and
+    results asynchronously.
     """
     run = Repository(db).create_run(request)
 
@@ -62,9 +63,7 @@ async def create_run(
 async def get_solution_for_run(
     db: Annotated[Session, Depends(get_db)], run_id: str
 ) -> SolutionResponse:
-    """
-    Endpoint to get the solution for a given run by its ID
-    """
+    """Return the full route solution with customer coordinates for ``run_id``."""
     return Repository(db).get_solution_for_run(run_id)
 
 

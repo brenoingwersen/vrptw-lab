@@ -1,3 +1,5 @@
+"""Database engine and FastAPI session dependency."""
+
 import os
 from collections.abc import Generator
 
@@ -14,8 +16,10 @@ engine = create_engine(DATABASE_URL, echo=False)
 
 
 def get_db() -> Generator[Session]:
-    """
-    Get a session connected to the database.
+    """Yield a database session for one request.
+
+    Yields:
+        SQLModel session closed automatically after the request finishes.
     """
     with Session(engine) as session:
         yield session
